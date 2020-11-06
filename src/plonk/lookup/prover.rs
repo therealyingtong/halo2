@@ -358,4 +358,162 @@ impl<C: CurveAffine> LookupData<C> {
         self.product = Some(product.clone());
         product
     }
+
+    pub fn construct_constraints(
+        &self,
+        pk: &ProvingKey<C>,
+        beta: C::Scalar,
+        gamma: C::Scalar,
+        theta: C::Scalar,
+        advice_cosets: &[Polynomial<C::Scalar, ExtendedLagrangeCoeff>],
+        fixed_cosets: &[Polynomial<C::Scalar, ExtendedLagrangeCoeff>],
+    ) -> Vec<Polynomial<C::Scalar, ExtendedLagrangeCoeff>> {
+        let permuted = self.permuted.clone().unwrap();
+        let product = self.product.clone().unwrap();
+        let unpermuted_input_cosets: Vec<Polynomial<C::Scalar, ExtendedLagrangeCoeff>> = self
+            .lookup
+            .input_columns
+            .iter()
+            .map(|&input| match input.column_type {
+                Any::Advice => advice_cosets[pk
+                    .vk
+                    .cs
+                    .get_advice_query_index(Column::<Advice>::from(input), 0)]
+                .clone(),
+                Any::Fixed => fixed_cosets[pk
+                    .vk
+                    .cs
+                    .get_fixed_query_index(Column::<Fixed>::from(input), 0)]
+                .clone(),
+                _ => unreachable!(),
+            })
+            .collect();
+
+        let unpermuted_table_cosets: Vec<Polynomial<C::Scalar, ExtendedLagrangeCoeff>> = self
+            .lookup
+            .table_columns
+            .iter()
+            .map(|&table| match table.column_type {
+                Any::Advice => advice_cosets[pk
+                    .vk
+                    .cs
+                    .get_advice_query_index(Column::<Advice>::from(table), 0)]
+                .clone(),
+                Any::Fixed => fixed_cosets[pk
+                    .vk
+                    .cs
+                    .get_fixed_query_index(Column::<Fixed>::from(table), 0)]
+                .clone(),
+                _ => unreachable!(),
+            })
+            .collect();
+
+        let mut constraints: Vec<Polynomial<C::Scalar, ExtendedLagrangeCoeff>> =
+            Vec::with_capacity(4);
+
+        // l_0(X) * (1 - z'(X)) = 0
+        {
+            let mut first_product_poly = pk.vk.domain.empty_extended();
+            parallelize(&mut first_product_poly, |first_product_poly, start| {
+                for ((first_product_poly, product), l0) in first_product_poly
+                    .iter_mut()
+                    .zip(product.product_coset[start..].iter())
+                    .zip(pk.l0[start..].iter())
+                {
+                    *first_product_poly += &(*l0 * &(C::Scalar::one() - product));
+                }
+            });
+            constraints.push(first_product_poly);
+        }
+
+        // z'(X) (a'(X) + \beta) (s'(X) + \gamma)
+        // - z'(\omega^{-1} X) (a_1(X) + \theta a_2(X) + ... + \beta) (s_1(X) + \theta s_2(X) + ... + \gamma)
+        {
+            // z'(X) (a'(X) + \beta) (s'(X) + \gamma)
+            let mut left = product.product_coset.clone();
+            parallelize(&mut left, |left, start| {
+                for ((left, permuted_input), permuted_table) in left
+                    .iter_mut()
+                    .zip(permuted.permuted_input_coset[start..].iter())
+                    .zip(permuted.permuted_table_coset[start..].iter())
+                {
+                    *left *= &(*permuted_input + &beta);
+                    *left *= &(*permuted_table + &gamma);
+                }
+            });
+
+            //  z'(\omega^{-1} X) (a_1(X) + \theta a_2(X) + ... + \beta) (s_1(X) + \theta s_2(X) + ... + \gamma)
+            let mut right = product.product_inv_coset.clone();
+            let mut input_terms = pk.vk.domain.empty_extended();
+
+            // Compress the unpermuted Input columns
+            for input in unpermuted_input_cosets.iter() {
+                // (a_1(X) + \theta a_2(X) + ...)
+                parallelize(&mut input_terms, |input_term, start| {
+                    for (input_term, input) in input_term.iter_mut().zip(input[start..].iter()) {
+                        *input_term *= &theta;
+                        *input_term += input;
+                    }
+                });
+            }
+
+            let mut table_terms = pk.vk.domain.empty_extended();
+            // Compress the unpermuted Table columns
+            for table in unpermuted_table_cosets.iter() {
+                //  (s_1(X) + \theta s_2(X) + ...)
+                parallelize(&mut table_terms, |table_term, start| {
+                    for (table_term, table) in table_term.iter_mut().zip(table[start..].iter()) {
+                        *table_term *= &theta;
+                        *table_term += table;
+                    }
+                });
+            }
+
+            // add \beta and \gamma blinding
+            parallelize(&mut right, |right, start| {
+                for ((right, input_term), table_term) in right
+                    .iter_mut()
+                    .zip(input_terms[start..].iter())
+                    .zip(table_terms[start..].iter())
+                {
+                    *right *= &(*input_term + &beta);
+                    *right *= &(*table_term + &gamma);
+                }
+            });
+
+            constraints.push(left - &right);
+        }
+
+        // Check that the first values in the permuted input column and permuted
+        // fixed column are the same.
+        // l_0(X) * (a'(X) - s'(X)) = 0
+        {
+            let mut first_lookup_poly = pk.vk.domain.empty_extended();
+            parallelize(&mut first_lookup_poly, |first_lookup_poly, start| {
+                for (((first_lookup_poly, input), table), l0) in first_lookup_poly
+                    .iter_mut()
+                    .zip(permuted.permuted_input_coset[start..].iter())
+                    .zip(permuted.permuted_table_coset[start..].iter())
+                    .zip(pk.l0[start..].iter())
+                {
+                    *first_lookup_poly += &(*l0 * &(*input - table));
+                }
+            });
+            constraints.push(first_lookup_poly);
+        }
+
+        // Check that each value in the permuted lookup input column is either
+        // equal to the value above it, or the value at the same index in the
+        // permuted table column.
+        // (a′(X)−s′(X))⋅(a′(X)−a′(\omega{-1} X)) = 0
+        {
+            let mut lookup_poly =
+                permuted.permuted_input_coset.clone() - &permuted.permuted_table_coset;
+            lookup_poly = lookup_poly
+                * &(permuted.permuted_input_coset.clone() - &permuted.permuted_input_inv_coset);
+            constraints.push(lookup_poly);
+        }
+
+        constraints
+    }
 }
