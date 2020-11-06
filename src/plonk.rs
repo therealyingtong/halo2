@@ -13,6 +13,7 @@ use crate::transcript::Hasher;
 
 mod circuit;
 mod keygen;
+mod lookup;
 mod prover;
 mod verifier;
 
