@@ -335,6 +335,22 @@ fn test_proving() {
             let sl = meta.fixed_column();
             let sl2 = meta.fixed_column();
 
+            /*
+             *    A    B        ...  sl   sl2
+             * [
+             *   aux   0        ...  0    0
+             *   a     a        ...  0    0
+             *   a     a^2      ...  0    0
+             *   a     a        ...  0    0
+             *   a     a^2      ...  0    0
+             *   ...   ...      ...  ...  ...
+             *   ...   ...      ...  aux  0
+             *   ...   ...      ...  a    a
+             *   ...   ...      ...  a    a^2
+             *   ...   ...      ...  0    0
+             *
+             * ]
+             */
             meta.lookup(&[Column::<Any>::from(a)], &[Column::<Any>::from(sl)]);
             meta.lookup(
                 &[Column::<Any>::from(a), Column::<Any>::from(b)],

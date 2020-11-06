@@ -148,6 +148,7 @@ impl<C: CurveAffine> LookupData<C> {
                 permuted_table_coeffs[row] = input_value;
                 // Remove one instance of input_value from leftover_table_map
                 if let Some(count) = leftover_table_map.get_mut(&input_value) {
+                    assert!(*count > 0);
                     *count -= 1;
                 } else {
                     // Panic if input_value not found
@@ -159,18 +160,11 @@ impl<C: CurveAffine> LookupData<C> {
             }
         }
 
-        // Convert BTreeMap back into vector, using appropriate counts for each key
-        let leftover_table_coeffs: Vec<C::Scalar> = leftover_table_map.iter().fold(
-            Vec::with_capacity(repeated_input_rows.len()),
-            |mut acc, (coeff, count)| {
-                acc.extend(vec![*coeff; *count as usize]);
-                acc
-            },
-        );
-
         // Populate permuted table at unfilled rows with leftover table elements
-        for (idx, &row) in repeated_input_rows.iter().enumerate() {
-            permuted_table_coeffs[row] = leftover_table_coeffs[idx];
+        for (coeff, count) in leftover_table_map.iter() {
+            for _ in 0..*count {
+                permuted_table_coeffs[repeated_input_rows.remove(0) as usize] = *coeff;
+            }
         }
 
         let permuted_table_value = Polynomial::new(permuted_table_coeffs.to_vec());
@@ -488,17 +482,9 @@ impl<C: CurveAffine> LookupData<C> {
         // fixed column are the same.
         // l_0(X) * (a'(X) - s'(X)) = 0
         {
-            let mut first_lookup_poly = pk.vk.domain.empty_extended();
-            parallelize(&mut first_lookup_poly, |first_lookup_poly, start| {
-                for (((first_lookup_poly, input), table), l0) in first_lookup_poly
-                    .iter_mut()
-                    .zip(permuted.permuted_input_coset[start..].iter())
-                    .zip(permuted.permuted_table_coset[start..].iter())
-                    .zip(pk.l0[start..].iter())
-                {
-                    *first_lookup_poly += &(*l0 * &(*input - table));
-                }
-            });
+            let mut first_lookup_poly =
+                permuted.permuted_input_coset.clone() - &permuted.permuted_table_coset.clone();
+            first_lookup_poly = first_lookup_poly * &pk.l0;
             constraints.push(first_lookup_poly);
         }
 
