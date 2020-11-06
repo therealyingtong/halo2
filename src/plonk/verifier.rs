@@ -39,11 +39,12 @@ impl<'a, C: CurveAffine> Proof<C> {
             hash_point(&mut transcript, commitment)?;
         }
 
-        // Sample x_0 challenge
-        let x_0: C::Scalar = get_challenge_scalar(Challenge(transcript.squeeze().get_lower_128()));
+        // Sample beta challenge
+        let beta: C::Scalar = get_challenge_scalar(Challenge(transcript.squeeze().get_lower_128()));
 
-        // Sample x_1 challenge
-        let x_1: C::Scalar = get_challenge_scalar(Challenge(transcript.squeeze().get_lower_128()));
+        // Sample gamma challenge
+        let gamma: C::Scalar =
+            get_challenge_scalar(Challenge(transcript.squeeze().get_lower_128()));
 
         // Hash each permutation product commitment
         for c in &self.permutation_product_commitments {
@@ -64,7 +65,7 @@ impl<'a, C: CurveAffine> Proof<C> {
 
         // This check ensures the circuit is satisfied so long as the polynomial
         // commitments open to the correct values.
-        self.check_hx(params, vk, x_0, x_1, x_2, x_3)?;
+        self.check_hx(params, vk, beta, gamma, x_2, x_3)?;
 
         // Hash together all the openings provided by the prover into a new
         // transcript on the scalar field.
@@ -250,8 +251,8 @@ impl<'a, C: CurveAffine> Proof<C> {
         &self,
         params: &'a Params<C>,
         vk: &VerifyingKey<C>,
-        x_0: C::Scalar,
-        x_1: C::Scalar,
+        beta: C::Scalar,
+        gamma: C::Scalar,
         x_2: C::Scalar,
         x_3: C::Scalar,
     ) -> Result<(), Error> {
@@ -302,15 +303,15 @@ impl<'a, C: CurveAffine> Proof<C> {
                                 })
                                 .zip(permutation_evals.iter())
                             {
-                                left *= &(advice_eval + &(x_0 * permutation_eval) + &x_1);
+                                left *= &(advice_eval + &(beta * permutation_eval) + &gamma);
                             }
 
                             let mut right = *product_inv_eval;
-                            let mut current_delta = x_0 * &x_3;
+                            let mut current_delta = beta * &x_3;
                             for advice_eval in columns.iter().map(|&column| {
                                 self.advice_evals[vk.cs.get_advice_query_index(column, 0)]
                             }) {
-                                right *= &(advice_eval + &current_delta + &x_1);
+                                right *= &(advice_eval + &current_delta + &gamma);
                                 current_delta *= &C::Scalar::DELTA;
                             }
 

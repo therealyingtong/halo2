@@ -162,11 +162,12 @@ impl<C: CurveAffine> Proof<C> {
             })
             .collect();
 
-        // Sample x_0 challenge
-        let x_0: C::Scalar = get_challenge_scalar(Challenge(transcript.squeeze().get_lower_128()));
+        // Sample beta challenge
+        let beta: C::Scalar = get_challenge_scalar(Challenge(transcript.squeeze().get_lower_128()));
 
-        // Sample x_1 challenge
-        let x_1: C::Scalar = get_challenge_scalar(Challenge(transcript.squeeze().get_lower_128()));
+        // Sample gamma challenge
+        let gamma: C::Scalar =
+            get_challenge_scalar(Challenge(transcript.squeeze().get_lower_128()));
 
         // Compute permutation product polynomial commitment
         let mut permutation_product_polys = vec![];
@@ -195,7 +196,7 @@ impl<C: CurveAffine> Proof<C> {
                         .zip(witness.advice[column.index()][start..].iter())
                         .zip(permuted_column_values[start..].iter())
                     {
-                        *modified_advice *= &(x_0 * permuted_advice_value + &x_1 + advice_value);
+                        *modified_advice *= &(beta * permuted_advice_value + &gamma + advice_value);
                     }
                 });
             }
@@ -229,7 +230,7 @@ impl<C: CurveAffine> Proof<C> {
                         .zip(witness.advice[column.index()][start..].iter())
                     {
                         // Multiply by p_j(\omega^i) + \delta^j \omega^i \beta
-                        *modified_advice *= &(deltaomega * &x_0 + &x_1 + advice_value);
+                        *modified_advice *= &(deltaomega * &beta + &gamma + advice_value);
                         deltaomega *= &omega;
                     }
                 });
@@ -330,13 +331,13 @@ impl<C: CurveAffine> Proof<C> {
                         .zip(advice[start..].iter())
                         .zip(permutation[start..].iter())
                     {
-                        *left *= &(*advice + &(x_0 * permutation) + &x_1);
+                        *left *= &(*advice + &(beta * permutation) + &gamma);
                     }
                 });
             }
 
             let mut right = permutation_product_cosets_inv[permutation_index].clone();
-            let mut current_delta = x_0 * &C::Scalar::ZETA;
+            let mut current_delta = beta * &C::Scalar::ZETA;
             let step = domain.get_extended_omega();
             for advice in columns
                 .iter()
@@ -345,7 +346,7 @@ impl<C: CurveAffine> Proof<C> {
                 parallelize(&mut right, move |right, start| {
                     let mut beta_term = current_delta * &step.pow_vartime(&[start as u64, 0, 0, 0]);
                     for (right, advice) in right.iter_mut().zip(advice[start..].iter()) {
-                        *right *= &(*advice + &beta_term + &x_1);
+                        *right *= &(*advice + &beta_term + &gamma);
                         beta_term *= &step;
                     }
                 });

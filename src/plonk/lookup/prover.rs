@@ -269,7 +269,7 @@ impl<C: CurveAffine> LookupData<C> {
             });
         }
 
-        // Add blinding \beta and \gamma
+        // Add \beta and \gamma offsets
         parallelize(&mut lookup_product, |product, start| {
             for ((product, input_term), table_term) in product
                 .iter_mut()
@@ -469,7 +469,7 @@ impl<C: CurveAffine> LookupData<C> {
                 });
             }
 
-            // add \beta and \gamma blinding
+            // Add \beta and \gamma offsets
             parallelize(&mut right, |right, start| {
                 for ((right, input_term), table_term) in right
                     .iter_mut()
