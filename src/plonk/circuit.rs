@@ -3,7 +3,7 @@ use core::ops::{Add, Mul};
 use std::collections::BTreeMap;
 use std::convert::TryFrom;
 
-use super::Error;
+use super::{lookup::Lookup, Error};
 use crate::arithmetic::Field;
 use crate::poly::Rotation;
 
@@ -313,6 +313,10 @@ pub struct ConstraintSystem<F> {
     // Vector of permutation arguments, where each corresponds to a sequence of columns
     // that are involved in a permutation argument.
     pub(crate) permutations: Vec<Vec<Column<Advice>>>,
+
+    // Vector of lookup arguments, where each corresponds to a sequence of
+    // input columns and a sequence of table columns involved in the lookup.
+    pub(crate) lookups: Vec<Lookup>,
 }
 
 impl<F: Field> Default for ConstraintSystem<F> {
@@ -330,6 +334,7 @@ impl<F: Field> Default for ConstraintSystem<F> {
             aux_queries: Vec::new(),
             rotations,
             permutations: Vec::new(),
+            lookups: Vec::new(),
         }
     }
 }
@@ -348,6 +353,30 @@ impl<F: Field> ConstraintSystem<F> {
             self.query_advice_index(*column, 0);
         }
         self.permutations.push(columns.to_vec());
+
+        index
+    }
+
+    /// Add a lookup argument for some input columns and table columns.
+    pub fn lookup(
+        &mut self,
+        input_columns: &[Column<Any>],
+        table_columns: &[Column<Any>],
+    ) -> usize {
+        let index = self.lookups.len();
+        if self.lookups.is_empty() {
+            let at = Rotation(-1);
+            let len = self.rotations.len();
+            self.rotations.entry(at).or_insert(PointIndex(len));
+        }
+
+        for input in input_columns {
+            self.query_any_index(*input, 0);
+        }
+        for table in table_columns {
+            self.query_any_index(*table, 0);
+        }
+        self.lookups.push(Lookup::new(input_columns, table_columns));
 
         index
     }
