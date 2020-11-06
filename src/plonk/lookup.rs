@@ -2,7 +2,7 @@ use super::circuit::{Any, Column};
 use crate::arithmetic::CurveAffine;
 use crate::poly::{commitment::Blind, Coeff, ExtendedLagrangeCoeff, LagrangeCoeff, Polynomial};
 pub mod prover;
-// pub mod verifier;
+pub mod verifier;
 
 #[derive(Clone, Debug)]
 pub struct Lookup {
