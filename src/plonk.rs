@@ -57,6 +57,7 @@ pub struct Proof<C: CurveAffine> {
     permutation_product_evals: Vec<C::Scalar>,
     permutation_product_inv_evals: Vec<C::Scalar>,
     permutation_evals: Vec<Vec<C::Scalar>>,
+    lookup_proofs: Vec<lookup::Proof<C>>,
     advice_evals: Vec<C::Scalar>,
     aux_evals: Vec<C::Scalar>,
     fixed_evals: Vec<C::Scalar>,
