@@ -164,9 +164,10 @@ impl<C: CurveAffine> LookupData<C> {
         // Populate permuted table at unfilled rows with leftover table elements
         for (coeff, count) in leftover_table_map.iter() {
             for _ in 0..*count {
-                permuted_table_coeffs[repeated_input_rows.remove(0) as usize] = *coeff;
+                permuted_table_coeffs[repeated_input_rows.pop().unwrap() as usize] = *coeff;
             }
         }
+        assert!(repeated_input_rows.is_empty());
 
         let permuted_table_value = Polynomial::new(permuted_table_coeffs.to_vec());
 
@@ -447,7 +448,7 @@ impl<C: CurveAffine> LookupData<C> {
             let mut right = product.product_inv_coset.clone();
             let mut input_terms = pk.vk.domain.empty_extended();
 
-            // Compress the unpermuted Input columns
+            // Compress the unpermuted input columns
             for input in unpermuted_input_cosets.iter() {
                 // (a_1(X) + \theta a_2(X) + ...)
                 parallelize(&mut input_terms, |input_term, start| {
@@ -459,7 +460,7 @@ impl<C: CurveAffine> LookupData<C> {
             }
 
             let mut table_terms = pk.vk.domain.empty_extended();
-            // Compress the unpermuted Table columns
+            // Compress the unpermuted table columns
             for table in unpermuted_table_cosets.iter() {
                 //  (s_1(X) + \theta s_2(X) + ...)
                 parallelize(&mut table_terms, |table_term, start| {
