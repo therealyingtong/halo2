@@ -185,6 +185,7 @@ impl<C: CurveAffine> Proof<C> {
                 theta,
                 &witness.advice,
                 &pk.fixed_values,
+                &aux,
             );
             hash_point(&mut transcript, &permuted.permuted_input_commitment)?;
             hash_point(&mut transcript, &permuted.permuted_table_commitment)?;
@@ -318,6 +319,7 @@ impl<C: CurveAffine> Proof<C> {
                 theta,
                 &witness.advice,
                 &pk.fixed_values,
+                &aux,
             );
             // Hash each lookup product commitment
             hash_point(&mut transcript, &product.product_commitment)?;
@@ -407,6 +409,7 @@ impl<C: CurveAffine> Proof<C> {
                 theta,
                 &advice_cosets,
                 &pk.fixed_cosets,
+                &aux_cosets,
             );
             for lookup_constraint_poly in constraints.iter() {
                 h_poly = h_poly * x_2;

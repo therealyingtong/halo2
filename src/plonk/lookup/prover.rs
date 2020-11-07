@@ -1,5 +1,5 @@
 use super::super::{
-    circuit::{Advice, Any, Column, Fixed},
+    circuit::{Advice, Any, Aux, Column, Fixed},
     ProvingKey,
 };
 use super::{Lookup, Permuted, Product, Proof};
@@ -34,6 +34,7 @@ impl<C: CurveAffine> LookupData<C> {
         theta: C::Scalar,
         advice_values: &[Polynomial<C::Scalar, LagrangeCoeff>],
         fixed_values: &[Polynomial<C::Scalar, LagrangeCoeff>],
+        aux_values: &[Polynomial<C::Scalar, LagrangeCoeff>],
     ) -> Permuted<C> {
         // Values of input columns involved in the lookup
         let unpermuted_input_values: Vec<Polynomial<C::Scalar, LagrangeCoeff>> = self
@@ -43,7 +44,7 @@ impl<C: CurveAffine> LookupData<C> {
             .map(|&input| match input.column_type {
                 Any::Advice => advice_values[input.index].clone(),
                 Any::Fixed => fixed_values[input.index].clone(),
-                _ => unreachable!(),
+                Any::Aux => aux_values[input.index].clone(),
             })
             .collect();
 
@@ -60,7 +61,7 @@ impl<C: CurveAffine> LookupData<C> {
             .map(|&table| match table.column_type {
                 Any::Advice => advice_values[table.index].clone(),
                 Any::Fixed => fixed_values[table.index].clone(),
-                _ => unreachable!(),
+                Any::Aux => aux_values[table.index].clone(),
             })
             .collect();
 
@@ -181,6 +182,7 @@ impl<C: CurveAffine> LookupData<C> {
         theta: C::Scalar,
         advice_values: &[Polynomial<C::Scalar, LagrangeCoeff>],
         fixed_values: &[Polynomial<C::Scalar, LagrangeCoeff>],
+        aux_values: &[Polynomial<C::Scalar, LagrangeCoeff>],
     ) -> Product<C> {
         let permuted = self.permuted.clone().unwrap();
         let unpermuted_input_values: Vec<Polynomial<C::Scalar, LagrangeCoeff>> = self
@@ -190,7 +192,7 @@ impl<C: CurveAffine> LookupData<C> {
             .map(|&input| match input.column_type {
                 Any::Advice => advice_values[input.index].clone(),
                 Any::Fixed => fixed_values[input.index].clone(),
-                _ => unreachable!(),
+                Any::Aux => aux_values[input.index].clone(),
             })
             .collect();
 
@@ -201,7 +203,7 @@ impl<C: CurveAffine> LookupData<C> {
             .map(|&table| match table.column_type {
                 Any::Advice => advice_values[table.index].clone(),
                 Any::Fixed => fixed_values[table.index].clone(),
-                _ => unreachable!(),
+                Any::Aux => aux_values[table.index].clone(),
             })
             .collect();
 
@@ -361,6 +363,7 @@ impl<C: CurveAffine> LookupData<C> {
         theta: C::Scalar,
         advice_cosets: &[Polynomial<C::Scalar, ExtendedLagrangeCoeff>],
         fixed_cosets: &[Polynomial<C::Scalar, ExtendedLagrangeCoeff>],
+        aux_cosets: &[Polynomial<C::Scalar, ExtendedLagrangeCoeff>],
     ) -> Vec<Polynomial<C::Scalar, ExtendedLagrangeCoeff>> {
         let permuted = self.permuted.clone().unwrap();
         let product = self.product.clone().unwrap();
@@ -379,7 +382,9 @@ impl<C: CurveAffine> LookupData<C> {
                     .cs
                     .get_fixed_query_index(Column::<Fixed>::from(input), 0)]
                 .clone(),
-                _ => unreachable!(),
+                Any::Aux => {
+                    aux_cosets[pk.vk.cs.get_aux_query_index(Column::<Aux>::from(input), 0)].clone()
+                }
             })
             .collect();
 
@@ -398,7 +403,9 @@ impl<C: CurveAffine> LookupData<C> {
                     .cs
                     .get_fixed_query_index(Column::<Fixed>::from(table), 0)]
                 .clone(),
-                _ => unreachable!(),
+                Any::Aux => {
+                    aux_cosets[pk.vk.cs.get_aux_query_index(Column::<Aux>::from(table), 0)].clone()
+                }
             })
             .collect();
 
