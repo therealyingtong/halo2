@@ -9,6 +9,7 @@ use crate::poly::{
     EvaluationDomain, ExtendedLagrangeCoeff, LagrangeCoeff, Polynomial, Rotation,
 };
 use std::collections::BTreeMap;
+use std::convert::TryFrom;
 
 pub struct LookupData<C: CurveAffine> {
     pub lookup: Lookup,
@@ -41,10 +42,10 @@ impl<C: CurveAffine> LookupData<C> {
             .lookup
             .input_columns
             .iter()
-            .map(|&input| match input.column_type {
-                Any::Advice => advice_values[input.index].clone(),
-                Any::Fixed => fixed_values[input.index].clone(),
-                Any::Aux => aux_values[input.index].clone(),
+            .map(|&input| match input.column_type() {
+                Any::Advice => advice_values[input.index()].clone(),
+                Any::Fixed => fixed_values[input.index()].clone(),
+                Any::Aux => aux_values[input.index()].clone(),
             })
             .collect();
 
@@ -58,10 +59,10 @@ impl<C: CurveAffine> LookupData<C> {
             .lookup
             .table_columns
             .iter()
-            .map(|&table| match table.column_type {
-                Any::Advice => advice_values[table.index].clone(),
-                Any::Fixed => fixed_values[table.index].clone(),
-                Any::Aux => aux_values[table.index].clone(),
+            .map(|&table| match table.column_type() {
+                Any::Advice => advice_values[table.index()].clone(),
+                Any::Fixed => fixed_values[table.index()].clone(),
+                Any::Aux => aux_values[table.index()].clone(),
             })
             .collect();
 
@@ -190,10 +191,10 @@ impl<C: CurveAffine> LookupData<C> {
             .lookup
             .input_columns
             .iter()
-            .map(|&input| match input.column_type {
-                Any::Advice => advice_values[input.index].clone(),
-                Any::Fixed => fixed_values[input.index].clone(),
-                Any::Aux => aux_values[input.index].clone(),
+            .map(|&input| match input.column_type() {
+                Any::Advice => advice_values[input.index()].clone(),
+                Any::Fixed => fixed_values[input.index()].clone(),
+                Any::Aux => aux_values[input.index()].clone(),
             })
             .collect();
 
@@ -201,10 +202,10 @@ impl<C: CurveAffine> LookupData<C> {
             .lookup
             .table_columns
             .iter()
-            .map(|&table| match table.column_type {
-                Any::Advice => advice_values[table.index].clone(),
-                Any::Fixed => fixed_values[table.index].clone(),
-                Any::Aux => aux_values[table.index].clone(),
+            .map(|&table| match table.column_type() {
+                Any::Advice => advice_values[table.index()].clone(),
+                Any::Fixed => fixed_values[table.index()].clone(),
+                Any::Aux => aux_values[table.index()].clone(),
             })
             .collect();
 
@@ -372,20 +373,22 @@ impl<C: CurveAffine> LookupData<C> {
             .lookup
             .input_columns
             .iter()
-            .map(|&input| match input.column_type {
+            .map(|&input| match input.column_type() {
                 Any::Advice => advice_cosets[pk
                     .vk
                     .cs
-                    .get_advice_query_index(Column::<Advice>::from(input), 0)]
+                    .get_advice_query_index(Column::<Advice>::try_from(input).unwrap(), 0)]
                 .clone(),
                 Any::Fixed => fixed_cosets[pk
                     .vk
                     .cs
-                    .get_fixed_query_index(Column::<Fixed>::from(input), 0)]
+                    .get_fixed_query_index(Column::<Fixed>::try_from(input).unwrap(), 0)]
                 .clone(),
-                Any::Aux => {
-                    aux_cosets[pk.vk.cs.get_aux_query_index(Column::<Aux>::from(input), 0)].clone()
-                }
+                Any::Aux => aux_cosets[pk
+                    .vk
+                    .cs
+                    .get_aux_query_index(Column::<Aux>::try_from(input).unwrap(), 0)]
+                .clone(),
             })
             .collect();
 
@@ -393,20 +396,22 @@ impl<C: CurveAffine> LookupData<C> {
             .lookup
             .table_columns
             .iter()
-            .map(|&table| match table.column_type {
+            .map(|&table| match table.column_type() {
                 Any::Advice => advice_cosets[pk
                     .vk
                     .cs
-                    .get_advice_query_index(Column::<Advice>::from(table), 0)]
+                    .get_advice_query_index(Column::<Advice>::try_from(table).unwrap(), 0)]
                 .clone(),
                 Any::Fixed => fixed_cosets[pk
                     .vk
                     .cs
-                    .get_fixed_query_index(Column::<Fixed>::from(table), 0)]
+                    .get_fixed_query_index(Column::<Fixed>::try_from(table).unwrap(), 0)]
                 .clone(),
-                Any::Aux => {
-                    aux_cosets[pk.vk.cs.get_aux_query_index(Column::<Aux>::from(table), 0)].clone()
-                }
+                Any::Aux => aux_cosets[pk
+                    .vk
+                    .cs
+                    .get_aux_query_index(Column::<Aux>::try_from(table).unwrap(), 0)]
+                .clone(),
             })
             .collect();
 
