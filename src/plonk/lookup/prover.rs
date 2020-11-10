@@ -1,6 +1,6 @@
 use super::super::{
     circuit::{Advice, Any, Aux, Column, Fixed},
-    ProvingKey,
+    Error, ProvingKey,
 };
 use super::{Lookup, Permuted, Product, Proof};
 use crate::arithmetic::{eval_polynomial, parallelize, BatchInvert, Curve, CurveAffine, Field};
@@ -36,7 +36,7 @@ impl<C: CurveAffine> LookupData<C> {
         advice_values: &[Polynomial<C::Scalar, LagrangeCoeff>],
         fixed_values: &[Polynomial<C::Scalar, LagrangeCoeff>],
         aux_values: &[Polynomial<C::Scalar, LagrangeCoeff>],
-    ) -> Permuted<C> {
+    ) -> Result<Permuted<C>, Error> {
         // Values of input columns involved in the lookup
         let unpermuted_input_values: Vec<Polynomial<C::Scalar, LagrangeCoeff>> = self
             .lookup
@@ -73,7 +73,7 @@ impl<C: CurveAffine> LookupData<C> {
 
         // Permute compressed (InputColumn, TableColumn) pair
         let (permuted_input_value, permuted_table_value) =
-            LookupData::<C>::permute_column_pair(&compressed_input_value, &compressed_table_value);
+            LookupData::<C>::permute_column_pair(&compressed_input_value, &compressed_table_value)?;
 
         // Construct Permuted struct
         let permuted_input_poly = pk.vk.domain.lagrange_to_coeff(permuted_input_value.clone());
@@ -116,16 +116,19 @@ impl<C: CurveAffine> LookupData<C> {
         };
 
         self.permuted = Some(permuted.clone());
-        permuted
+        Ok(permuted)
     }
 
     fn permute_column_pair(
         input_value: &Polynomial<C::Scalar, LagrangeCoeff>,
         table_value: &Polynomial<C::Scalar, LagrangeCoeff>,
-    ) -> (
-        Polynomial<C::Scalar, LagrangeCoeff>,
-        Polynomial<C::Scalar, LagrangeCoeff>,
-    ) {
+    ) -> Result<
+        (
+            Polynomial<C::Scalar, LagrangeCoeff>,
+            Polynomial<C::Scalar, LagrangeCoeff>,
+        ),
+        Error,
+    > {
         let mut input_coeffs = input_value.get_values().to_vec();
         let table_coeffs = table_value.get_values().to_vec();
 
@@ -153,8 +156,8 @@ impl<C: CurveAffine> LookupData<C> {
                     assert!(*count > 0);
                     *count -= 1;
                 } else {
-                    // Panic if input_value not found
-                    panic!("Input value not found in table.");
+                    // Return error if input_value not found
+                    return Err(Error::ConstraintSystemFailure);
                 }
             // If input value is repeated
             } else {
@@ -172,7 +175,7 @@ impl<C: CurveAffine> LookupData<C> {
 
         let permuted_table_value = Polynomial::new(permuted_table_coeffs.to_vec());
 
-        (permuted_input_value, permuted_table_value)
+        Ok((permuted_input_value, permuted_table_value))
     }
 
     pub fn construct_product(

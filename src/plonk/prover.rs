@@ -186,7 +186,7 @@ impl<C: CurveAffine> Proof<C> {
                 &witness.advice,
                 &pk.fixed_values,
                 &aux,
-            );
+            )?;
             hash_point(&mut transcript, &permuted.permuted_input_commitment)?;
             hash_point(&mut transcript, &permuted.permuted_table_commitment)?;
         }
