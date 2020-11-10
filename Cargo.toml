@@ -33,3 +33,6 @@ subtle = "2.2.1"
 crossbeam-utils = "0.7"
 num_cpus = "1.13"
 rand = "0.7"
+
+[features]
+sanity-checks = []

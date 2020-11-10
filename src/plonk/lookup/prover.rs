@@ -324,40 +324,45 @@ impl<C: CurveAffine> LookupData<C> {
         }
         let z = pk.vk.domain.lagrange_from_vec(z);
 
-        // Check lagrange form of product is correctly constructed over the domain
-        // z'(X) (a'(X) + \beta) (s'(X) + \gamma)
-        // - z'(\omega^{-1} X) (a_1(X) + \theta a_2(X) + ... + \beta) (s_1(X) + \theta s_2(X) + ... + \gamma)
-        let n = params.n as usize;
+        #[cfg(feature = "sanity-checks")]
+        // This test works only with intermediate representations in this method.
+        // It can be used for debugging purposes.
+        {
+            // While in Lagrange basis, check that product is correctly constructed
+            let n = params.n as usize;
 
-        for i in 0..n {
-            let prev_idx = (n + i - 1) % n;
+            // z'(X) (a'(X) + \beta) (s'(X) + \gamma)
+            // - z'(\omega^{-1} X) (a_1(X) + \theta a_2(X) + ... + \beta) (s_1(X) + \theta s_2(X) + ... + \gamma)
+            for i in 0..n {
+                let prev_idx = (n + i - 1) % n;
 
-            let mut left = z.get_values().clone()[i];
-            let permuted_input_value = &permuted.permuted_input_value.get_values()[i];
+                let mut left = z.get_values().clone()[i];
+                let permuted_input_value = &permuted.permuted_input_value.get_values()[i];
 
-            let permuted_table_value = &permuted.permuted_table_value.get_values()[i];
+                let permuted_table_value = &permuted.permuted_table_value.get_values()[i];
 
-            left *= &(beta + permuted_input_value);
-            left *= &(gamma + permuted_table_value);
+                left *= &(beta + permuted_input_value);
+                left *= &(gamma + permuted_table_value);
 
-            let mut right = z.get_values().clone()[prev_idx];
-            let mut input_term = unpermuted_input_values
-                .iter()
-                .fold(C::Scalar::zero(), |acc, input| {
-                    acc * &theta + &input.get_values()[i]
-                });
+                let mut right = z.get_values().clone()[prev_idx];
+                let mut input_term = unpermuted_input_values
+                    .iter()
+                    .fold(C::Scalar::zero(), |acc, input| {
+                        acc * &theta + &input.get_values()[i]
+                    });
 
-            let mut table_term = unpermuted_table_values
-                .iter()
-                .fold(C::Scalar::zero(), |acc, table| {
-                    acc * &theta + &table.get_values()[i]
-                });
+                let mut table_term = unpermuted_table_values
+                    .iter()
+                    .fold(C::Scalar::zero(), |acc, table| {
+                        acc * &theta + &table.get_values()[i]
+                    });
 
-            input_term += &beta;
-            table_term += &gamma;
-            right *= &(input_term * &table_term);
+                input_term += &beta;
+                table_term += &gamma;
+                right *= &(input_term * &table_term);
 
-            assert_eq!(left, right);
+                assert_eq!(left, right);
+            }
         }
 
         let product_blind = Blind(C::Scalar::random());
