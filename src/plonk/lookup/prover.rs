@@ -18,6 +18,7 @@ pub struct LookupData<C: CurveAffine> {
 }
 
 impl<C: CurveAffine> LookupData<C> {
+    /// Initialise a new lookup with just the input columns and table columns
     pub fn new(lookup: &Lookup) -> Self {
         assert_eq!(lookup.input_columns.len(), lookup.table_columns.len());
         LookupData {
@@ -27,6 +28,15 @@ impl<C: CurveAffine> LookupData<C> {
         }
     }
 
+    /// Given a Lookup with input columns [A_0, A_1, ..., A_m] and table columns
+    /// [S_0, S_1, ..., S_m], this method
+    /// - constructs A_compressed = A_0 + theta A_1 + theta^2 A_2 + ... and
+    ///   S_compressed = S_0 + theta S_1 + theta^2 S_2 + ...,
+    /// - permutes A_compressed and S_compressed using permute_column_pair() helper,
+    ///   obtaining A' and S', and
+    /// - constructs Permuted<C> struct using permuted_input_value = A', and
+    ///   permuted_table_value = S'.
+    /// The Permuted<C> struct is used to update the Lookup, and is then returned.
     pub fn construct_permuted(
         &mut self,
         pk: &ProvingKey<C>,
@@ -119,6 +129,12 @@ impl<C: CurveAffine> LookupData<C> {
         Ok(permuted)
     }
 
+    /// Given a column of input values A and a column of table values S,
+    /// this method permutes A and S to produce A' and S', such that:
+    /// - like values in A' are vertically adjacent to each other; and
+    /// - the first row in a sequence of like values in A' is the row
+    ///   that has the corresponding value in S'.
+    /// This method returns (A', S') if no errors are encountered.
     fn permute_column_pair(
         input_value: &Polynomial<C::Scalar, LagrangeCoeff>,
         table_value: &Polynomial<C::Scalar, LagrangeCoeff>,
@@ -178,6 +194,11 @@ impl<C: CurveAffine> LookupData<C> {
         Ok((permuted_input_value, permuted_table_value))
     }
 
+    /// Given a Lookup with input columns, table columns, and the permuted
+    /// input column and permuted table column, this method constructs the
+    /// grand product polynomial over the lookup. The grand product polynomial
+    /// is used to populate the Product<C> struct. The Product<C> struct is
+    /// added to the Lookup and finally returned by the method.
     pub fn construct_product(
         &mut self,
         pk: &ProvingKey<C>,
@@ -360,6 +381,11 @@ impl<C: CurveAffine> LookupData<C> {
         product
     }
 
+    /// Given a Lookup with input columns, table columns, permuted input
+    /// column, permuted table column, and grand product polynomial, this
+    /// method constructs constraints that must hold between these values.
+    /// This method returns the constraints as a vector of polynomials in
+    /// the extended evaluation domain.
     pub fn construct_constraints(
         &self,
         pk: &ProvingKey<C>,
@@ -519,6 +545,10 @@ impl<C: CurveAffine> LookupData<C> {
         constraints
     }
 
+    /// This method evaluates a Lookup's commitments at a given point.
+    /// The commitments to the grand product, permuted input, and permuted
+    /// table, are returned in a Proof<C> struct, along with their evaluations
+    /// at the given point.
     pub fn construct_proof(
         &mut self,
         domain: &EvaluationDomain<C::Scalar>,

@@ -318,7 +318,7 @@ impl<'a, C: CurveAffine> Proof<C> {
 
         let mut lookup_evaluations: Vec<C::Scalar> = Vec::new();
         for (lookup, lookup_proof) in vk.cs.lookups.iter().zip(self.lookup_proofs.iter()) {
-            let lookup_evaluation = lookup_proof.check_lookup_constraints(
+            let lookup_evaluation = lookup_proof.evaluate_lookup_constraints(
                 &vk.cs,
                 beta,
                 gamma,

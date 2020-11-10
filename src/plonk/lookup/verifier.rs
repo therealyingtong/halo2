@@ -3,7 +3,12 @@ use super::{Lookup, Proof};
 use crate::arithmetic::{CurveAffine, Field};
 
 impl<C: CurveAffine> Proof<C> {
-    pub fn check_lookup_constraints(
+    /// Given the evaluations of the input columns and table columns of a
+    /// Lookup, along with the evaluations of the permuted input column,
+    /// permuted table column, and lookup grand product, this method applies
+    /// certain constraints to these evaluations and returns the final
+    /// values as a result of applying each constraint.
+    pub fn evaluate_lookup_constraints(
         &self,
         cs: &ConstraintSystem<C::Scalar>,
         beta: C::Scalar,
