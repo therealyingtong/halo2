@@ -111,7 +111,7 @@ pub fn hash_point<C: CurveAffine, H: Hasher<C::Base>>(
 
 #[test]
 fn test_proving() {
-    use crate::arithmetic::{Curve, Field};
+    use crate::arithmetic::{Curve, FieldExt};
     use crate::poly::commitment::{Blind, Params};
     use crate::transcript::DummyHash;
     use crate::tweedle::{EqAffine, Fp, Fq};
@@ -143,7 +143,7 @@ fn test_proving() {
         perm2: usize,
     }
 
-    trait StandardCS<FF: Field> {
+    trait StandardCS<FF: FieldExt> {
         fn raw_multiply<F>(&mut self, f: F) -> Result<(Variable, Variable, Variable), Error>
         where
             F: FnOnce() -> Result<(FF, FF, FF), Error>;
@@ -156,18 +156,18 @@ fn test_proving() {
             F: FnOnce() -> Result<FF, Error>;
     }
 
-    struct MyCircuit<F: Field> {
+    struct MyCircuit<F: FieldExt> {
         a: Option<F>,
     }
 
-    struct StandardPLONK<'a, F: Field, CS: Assignment<F> + 'a> {
+    struct StandardPLONK<'a, F: FieldExt, CS: Assignment<F> + 'a> {
         cs: &'a mut CS,
         config: PLONKConfig,
         current_gate: usize,
         _marker: PhantomData<F>,
     }
 
-    impl<'a, FF: Field, CS: Assignment<FF>> StandardPLONK<'a, FF, CS> {
+    impl<'a, FF: FieldExt, CS: Assignment<FF>> StandardPLONK<'a, FF, CS> {
         fn new(cs: &'a mut CS, config: PLONKConfig) -> Self {
             StandardPLONK {
                 cs,
@@ -178,7 +178,7 @@ fn test_proving() {
         }
     }
 
-    impl<'a, FF: Field, CS: Assignment<FF>> StandardCS<FF> for StandardPLONK<'a, FF, CS> {
+    impl<'a, FF: FieldExt, CS: Assignment<FF>> StandardCS<FF> for StandardPLONK<'a, FF, CS> {
         fn raw_multiply<F>(&mut self, f: F) -> Result<(Variable, Variable, Variable), Error>
         where
             F: FnOnce() -> Result<(FF, FF, FF), Error>,
@@ -293,7 +293,7 @@ fn test_proving() {
         }
     }
 
-    impl<F: Field> Circuit<F> for MyCircuit<F> {
+    impl<F: FieldExt> Circuit<F> for MyCircuit<F> {
         type Config = PLONKConfig;
 
         fn configure(meta: &mut ConstraintSystem<F>) -> PLONKConfig {
@@ -390,7 +390,7 @@ fn test_proving() {
     }
 
     let circuit: MyCircuit<Fp> = MyCircuit {
-        a: Some(Fp::random()),
+        a: Some(Fp::rand()),
     };
 
     let empty_circuit: MyCircuit<Fp> = MyCircuit { a: None };
