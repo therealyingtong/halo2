@@ -39,9 +39,9 @@ impl<C: CurveAffine> Proof<C> {
             for &input in lookup.input_columns.iter() {
                 let index = cs.get_any_query_index(input, 0);
                 let eval = match input.column_type() {
-                    Any::Advice => advice_evals[index].clone(),
-                    Any::Fixed => fixed_evals[index].clone(),
-                    Any::Aux => aux_evals[index].clone(),
+                    Any::Advice => advice_evals[index],
+                    Any::Fixed => fixed_evals[index],
+                    Any::Aux => aux_evals[index],
                 };
                 input_term *= &theta;
                 input_term += &eval;
@@ -52,9 +52,9 @@ impl<C: CurveAffine> Proof<C> {
             for &table in lookup.table_columns.iter() {
                 let index = cs.get_any_query_index(table, 0);
                 let eval = match table.column_type() {
-                    Any::Advice => advice_evals[index].clone(),
-                    Any::Fixed => fixed_evals[index].clone(),
-                    Any::Aux => aux_evals[index].clone(),
+                    Any::Advice => advice_evals[index],
+                    Any::Fixed => fixed_evals[index],
+                    Any::Aux => aux_evals[index],
                 };
                 table_term *= &theta;
                 table_term += &eval;

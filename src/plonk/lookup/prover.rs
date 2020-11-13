@@ -381,7 +381,7 @@ impl<C: CurveAffine> LookupData<C> {
         let product_inv_coset = pk.vk.domain.coeff_to_extended(z.clone(), Rotation(-1));
 
         let product = Product::<C> {
-            product_poly: z.clone(),
+            product_poly: z,
             product_coset,
             product_inv_coset,
             product_commitment,
@@ -490,7 +490,7 @@ impl<C: CurveAffine> LookupData<C> {
             });
 
             //  z'(\omega^{-1} X) (a_1(X) + \theta a_2(X) + ... + \beta) (s_1(X) + \theta s_2(X) + ... + \gamma)
-            let mut right = product.product_inv_coset.clone();
+            let mut right = product.product_inv_coset;
             let mut input_terms = pk.vk.domain.empty_extended();
 
             // Compress the unpermuted input columns
@@ -536,7 +536,7 @@ impl<C: CurveAffine> LookupData<C> {
         // l_0(X) * (a'(X) - s'(X)) = 0
         {
             let mut first_lookup_poly =
-                permuted.permuted_input_coset.clone() - &permuted.permuted_table_coset.clone();
+                permuted.permuted_input_coset.clone() - &permuted.permuted_table_coset;
             first_lookup_poly = first_lookup_poly * &pk.l0;
             constraints.push(first_lookup_poly);
         }

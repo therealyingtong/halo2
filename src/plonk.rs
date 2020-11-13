@@ -449,7 +449,7 @@ fn test_proving() {
 
     let circuit: MyCircuit<Fp> = MyCircuit {
         a: Some(a),
-        lookup_arrays: vec![lookup_array.clone(), lookup_array_2.clone()],
+        lookup_arrays: vec![lookup_array, lookup_array_2],
     };
 
     // Initialize the proving key
