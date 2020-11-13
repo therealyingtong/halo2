@@ -19,17 +19,10 @@ impl<C: CurveAffine> Proof<C> {
         advice_evals: &[C::Scalar],
         fixed_evals: &[C::Scalar],
         aux_evals: &[C::Scalar],
-    ) -> Vec<C::Scalar> {
-        let mut constraints = Vec::with_capacity(4);
-        // l_0(X) * (1 - z'(X)) = 0
-        {
-            let first_product_constraint = l_0 * &(C::Scalar::one() - &self.product_eval);
-            constraints.push(first_product_constraint);
-        }
-
-        // z'(X) (a'(X) + \beta) (s'(X) + \gamma)
-        // - z'(\omega^{-1} X) (a_1(X) + \theta a_2(X) + ... + \beta) (s_1(X) + \theta s_2(X) + ... + \gamma)
-        {
+    ) -> impl Iterator<Item = C::Scalar> {
+        let product_constraint = || {
+            // z'(X) (a'(X) + \beta) (s'(X) + \gamma)
+            // - z'(\omega^{-1} X) (a_1(X) + \theta a_2(X) + ... + \beta) (s_1(X) + \theta s_2(X) + ... + \gamma)
             let left = self.product_eval
                 * &(self.permuted_input_eval + &beta)
                 * &(self.permuted_table_eval + &gamma);
@@ -62,29 +55,25 @@ impl<C: CurveAffine> Proof<C> {
             table_term += &gamma;
 
             right *= &(input_term * &table_term);
+            left - &right
+        };
 
-            constraints.push(left - &right);
-        }
-
-        // Check that the first values in the permuted input column and permuted
-        // fixed column are the same.
-        // l_0(X) * (a'(X) - s'(X)) = 0
-        {
-            let first_lookup_constraint =
-                l_0 * &(self.permuted_input_eval - &self.permuted_table_eval);
-            constraints.push(first_lookup_constraint);
-        }
-
-        // Check that each value in the permuted lookup input column is either
-        // equal to the value above it, or the value at the same index in the
-        // permuted table column.
-        // (a′(X)−s′(X))⋅(a′(X)−a′(\omega{-1} X)) = 0
-        {
-            let lookup_constraint = (self.permuted_input_eval - &self.permuted_table_eval)
-                * &(self.permuted_input_eval - &self.permuted_input_inv_eval);
-            constraints.push(lookup_constraint);
-        }
-
-        constraints
+        std::iter::empty()
+            .chain(
+                // l_0(X) * (1 - z'(X)) = 0
+                Some(l_0 * &(C::Scalar::one() - &self.product_eval)),
+            )
+            .chain(
+                // z'(X) (a'(X) + \beta) (s'(X) + \gamma)
+                // - z'(\omega^{-1} X) (a_1(X) + \theta a_2(X) + ... + \beta) (s_1(X) + \theta s_2(X) + ... + \gamma)
+                Some(product_constraint()),
+            )
+            .chain(Some(
+                l_0 * &(self.permuted_input_eval - &self.permuted_table_eval),
+            ))
+            .chain(Some(
+                (self.permuted_input_eval - &self.permuted_table_eval)
+                    * &(self.permuted_input_eval - &self.permuted_input_inv_eval),
+            ))
     }
 }

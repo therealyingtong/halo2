@@ -97,18 +97,16 @@ impl<'a, C: CurveAffine> Proof<C> {
             .chain(
                 self.lookup_proofs
                     .iter()
-                    .map(|proof| {
-                        vec![
-                            proof.product_eval,
-                            proof.product_inv_eval,
-                            proof.permuted_input_eval,
-                            proof.permuted_input_inv_eval,
-                            proof.permuted_table_eval,
-                        ]
+                    .flat_map(|proof| {
+                        std::iter::empty()
+                            .chain(Some(proof.product_eval))
+                            .chain(Some(proof.product_inv_eval))
+                            .chain(Some(proof.permuted_input_eval))
+                            .chain(Some(proof.permuted_input_inv_eval))
+                            .chain(Some(proof.permuted_table_eval))
                     })
                     .collect::<Vec<_>>()
-                    .iter()
-                    .flatten(),
+                    .iter(),
             )
         {
             transcript_scalar.absorb(*eval);
@@ -340,23 +338,6 @@ impl<'a, C: CurveAffine> Proof<C> {
             * &(x_3n - &C::Scalar::one()) // (x_3^n - 1) / (x_3 - 1)
             * &vk.domain.get_barycentric_weight(); // l_0(x_3)
 
-        let mut lookup_evaluations: Vec<C::Scalar> = Vec::new();
-        for (lookup, lookup_proof) in vk.cs.lookups.iter().zip(self.lookup_proofs.iter()) {
-            let lookup_evaluation = lookup_proof.evaluate_lookup_constraints(
-                &vk.cs,
-                theta,
-                beta,
-                gamma,
-                l_0,
-                lookup,
-                &self.advice_evals,
-                &self.fixed_evals,
-                &self.aux_evals,
-            );
-            lookup_evaluations.extend(lookup_evaluation);
-        }
-        let lookup_evaluations = lookup_evaluations;
-
         // Compute the expected value of h(x_3)
         let expected_h_eval = std::iter::empty()
             // Evaluate the circuit using the custom gates provided
@@ -411,7 +392,25 @@ impl<'a, C: CurveAffine> Proof<C> {
                         },
                     ),
             )
-            .chain(lookup_evaluations)
+            .chain(
+                vk.cs
+                    .lookups
+                    .iter()
+                    .zip(self.lookup_proofs.iter())
+                    .flat_map(|(lookup, lookup_proof)| {
+                        lookup_proof.evaluate_lookup_constraints(
+                            &vk.cs,
+                            theta,
+                            beta,
+                            gamma,
+                            l_0,
+                            lookup,
+                            &self.advice_evals,
+                            &self.fixed_evals,
+                            &self.aux_evals,
+                        )
+                    }),
+            )
             .fold(C::Scalar::zero(), |h_eval, v| h_eval * &x_2 + &v);
 
         // Compute h(x_3) from the prover

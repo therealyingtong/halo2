@@ -528,18 +528,16 @@ impl<C: CurveAffine> Proof<C> {
             .chain(
                 lookup_proofs
                     .iter()
-                    .map(|proof| {
-                        vec![
-                            proof.product_eval,
-                            proof.product_inv_eval,
-                            proof.permuted_input_eval,
-                            proof.permuted_input_inv_eval,
-                            proof.permuted_table_eval,
-                        ]
+                    .flat_map(|proof| {
+                        std::iter::empty()
+                            .chain(Some(proof.product_eval))
+                            .chain(Some(proof.product_inv_eval))
+                            .chain(Some(proof.permuted_input_eval))
+                            .chain(Some(proof.permuted_input_inv_eval))
+                            .chain(Some(proof.permuted_table_eval))
                     })
                     .collect::<Vec<_>>()
-                    .iter()
-                    .flatten(),
+                    .iter(),
             )
         {
             transcript_scalar.absorb(*eval);
