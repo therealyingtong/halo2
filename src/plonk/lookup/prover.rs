@@ -82,8 +82,11 @@ impl<C: CurveAffine> LookupData<C> {
             .fold(domain.empty_lagrange(), |acc, table| acc * theta + table);
 
         // Permute compressed (InputColumn, TableColumn) pair
-        let (permuted_input_value, permuted_table_value) =
-            LookupData::<C>::permute_column_pair(&compressed_input_value, &compressed_table_value)?;
+        let (permuted_input_value, permuted_table_value) = LookupData::<C>::permute_column_pair(
+            domain,
+            &compressed_input_value,
+            &compressed_table_value,
+        )?;
 
         // Construct Permuted struct
         let permuted_input_poly = pk.vk.domain.lagrange_to_coeff(permuted_input_value.clone());
@@ -136,6 +139,7 @@ impl<C: CurveAffine> LookupData<C> {
     ///   that has the corresponding value in S'.
     /// This method returns (A', S') if no errors are encountered.
     fn permute_column_pair(
+        domain: &EvaluationDomain<C::Scalar>,
         input_value: &Polynomial<C::Scalar, LagrangeCoeff>,
         table_value: &Polynomial<C::Scalar, LagrangeCoeff>,
     ) -> Result<
@@ -145,27 +149,25 @@ impl<C: CurveAffine> LookupData<C> {
         ),
         Error,
     > {
-        let mut input_coeffs = input_value.get_values().to_vec();
-        let table_coeffs = table_value.get_values().to_vec();
+        let mut permuted_input_value = input_value.clone();
 
         // Sort input lookup column values
-        input_coeffs.sort();
-        let permuted_input_value = Polynomial::new(input_coeffs.to_vec());
+        permuted_input_value.sort();
 
         // A BTreeMap of each unique element in the table column and its count
         let mut leftover_table_map: BTreeMap<C::Scalar, u32> =
-            table_coeffs.iter().fold(BTreeMap::new(), |mut acc, coeff| {
+            table_value.iter().fold(BTreeMap::new(), |mut acc, coeff| {
                 *acc.entry(*coeff).or_insert(0) += 1;
                 acc
             });
         let mut repeated_input_rows = vec![];
-        let mut permuted_table_coeffs = vec![C::Scalar::zero(); table_coeffs.len()];
+        let mut permuted_table_coeffs = vec![C::Scalar::zero(); table_value.len()];
 
-        for row in 0..input_coeffs.len() {
-            let input_value = input_coeffs[row];
+        for row in 0..permuted_input_value.len() {
+            let input_value = permuted_input_value[row];
 
             // If this is the first occurence of `input_value` in the input column
-            if row == 0 || input_value != input_coeffs[row - 1] {
+            if row == 0 || input_value != permuted_input_value[row - 1] {
                 permuted_table_coeffs[row] = input_value;
                 // Remove one instance of input_value from leftover_table_map
                 if let Some(count) = leftover_table_map.get_mut(&input_value) {
@@ -189,7 +191,15 @@ impl<C: CurveAffine> LookupData<C> {
         }
         assert!(repeated_input_rows.is_empty());
 
-        let permuted_table_value = Polynomial::new(permuted_table_coeffs.to_vec());
+        let mut permuted_table_value = domain.empty_lagrange();
+        parallelize(&mut permuted_table_value, |permuted_table_value, start| {
+            for (permuted_table_value, permuted_table_coeff) in permuted_table_value
+                .iter_mut()
+                .zip(permuted_table_coeffs[start..].iter())
+            {
+                *permuted_table_value += permuted_table_coeff;
+            }
+        });
 
         Ok((permuted_input_value, permuted_table_value))
     }
@@ -269,7 +279,7 @@ impl<C: CurveAffine> LookupData<C> {
             parallelize(&mut input_term, |input_term, start| {
                 for (input_term, input_value) in input_term
                     .iter_mut()
-                    .zip(unpermuted_input_value.get_values()[start..].iter())
+                    .zip(unpermuted_input_value[start..].iter())
                 {
                     *input_term *= &theta;
                     *input_term += input_value;
@@ -283,7 +293,7 @@ impl<C: CurveAffine> LookupData<C> {
             parallelize(&mut table_term, |table_term, start| {
                 for (table_term, fixed_value) in table_term
                     .iter_mut()
-                    .zip(unpermuted_table_value.get_values()[start..].iter())
+                    .zip(unpermuted_table_value[start..].iter())
                 {
                     *table_term *= &theta;
                     *table_term += fixed_value;
@@ -336,26 +346,22 @@ impl<C: CurveAffine> LookupData<C> {
             for i in 0..n {
                 let prev_idx = (n + i - 1) % n;
 
-                let mut left = z.get_values().clone()[i];
-                let permuted_input_value = &permuted.permuted_input_value.get_values()[i];
+                let mut left = z[i];
+                let permuted_input_value = &permuted.permuted_input_value[i];
 
-                let permuted_table_value = &permuted.permuted_table_value.get_values()[i];
+                let permuted_table_value = &permuted.permuted_table_value[i];
 
                 left *= &(beta + permuted_input_value);
                 left *= &(gamma + permuted_table_value);
 
-                let mut right = z.get_values().clone()[prev_idx];
+                let mut right = z[prev_idx];
                 let mut input_term = unpermuted_input_values
                     .iter()
-                    .fold(C::Scalar::zero(), |acc, input| {
-                        acc * &theta + &input.get_values()[i]
-                    });
+                    .fold(C::Scalar::zero(), |acc, input| acc * &theta + &input[i]);
 
                 let mut table_term = unpermuted_table_values
                     .iter()
-                    .fold(C::Scalar::zero(), |acc, table| {
-                        acc * &theta + &table.get_values()[i]
-                    });
+                    .fold(C::Scalar::zero(), |acc, table| acc * &theta + &table[i]);
 
                 input_term += &beta;
                 table_term += &gamma;
@@ -562,10 +568,10 @@ impl<C: CurveAffine> LookupData<C> {
         let product = self.product.clone().unwrap();
         let permuted = self.permuted.clone().unwrap();
 
-        let product_eval: C::Scalar = eval_polynomial(&product.product_poly.get_values(), point);
+        let product_eval: C::Scalar = eval_polynomial(&product.product_poly, point);
 
         let product_inv_eval: C::Scalar = eval_polynomial(
-            &product.product_poly.get_values(),
+            &product.product_poly,
             domain.rotate_omega(point, Rotation(-1)),
         );
 
