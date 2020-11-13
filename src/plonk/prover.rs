@@ -525,6 +525,22 @@ impl<C: CurveAffine> Proof<C> {
             .chain(permutation_product_evals.iter())
             .chain(permutation_product_inv_evals.iter())
             .chain(permutation_evals.iter().flat_map(|evals| evals.iter()))
+            .chain(
+                lookup_proofs
+                    .iter()
+                    .map(|proof| {
+                        vec![
+                            proof.product_eval,
+                            proof.product_inv_eval,
+                            proof.permuted_input_eval,
+                            proof.permuted_input_inv_eval,
+                            proof.permuted_table_eval,
+                        ]
+                    })
+                    .collect::<Vec<_>>()
+                    .iter()
+                    .flatten(),
+            )
         {
             transcript_scalar.absorb(*eval);
         }
@@ -653,6 +669,14 @@ impl<C: CurveAffine> Proof<C> {
             });
 
             let x_3_inv = domain.rotate_omega(x_3, Rotation(-1));
+            // Open lookup input commitments at \omega^{-1} x_3
+            instances.push(ProverQuery {
+                point: x_3_inv,
+                poly: &lookup.permuted.as_ref().unwrap().permuted_input_poly,
+                blind: lookup.permuted.clone().unwrap().permuted_input_blind,
+                eval: proof.permuted_input_inv_eval,
+            });
+
             // Open lookup product commitments at \omega^{-1} x_3
             instances.push(ProverQuery {
                 point: x_3_inv,

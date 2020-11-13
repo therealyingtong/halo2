@@ -79,7 +79,7 @@ impl<'a, C: CurveAffine> Proof<C> {
 
         // This check ensures the circuit is satisfied so long as the polynomial
         // commitments open to the correct values.
-        self.check_hx(params, vk, beta, gamma, x_2, x_3, theta)?;
+        self.check_hx(params, vk, theta, beta, gamma, x_2, x_3)?;
 
         // Hash together all the openings provided by the prover into a new
         // transcript on the scalar field.
@@ -94,6 +94,22 @@ impl<'a, C: CurveAffine> Proof<C> {
             .chain(self.permutation_product_evals.iter())
             .chain(self.permutation_product_inv_evals.iter())
             .chain(self.permutation_evals.iter().flat_map(|evals| evals.iter()))
+            .chain(
+                self.lookup_proofs
+                    .iter()
+                    .map(|proof| {
+                        vec![
+                            proof.product_eval,
+                            proof.product_inv_eval,
+                            proof.permuted_input_eval,
+                            proof.permuted_input_inv_eval,
+                            proof.permuted_table_eval,
+                        ]
+                    })
+                    .collect::<Vec<_>>()
+                    .iter()
+                    .flatten(),
+            )
         {
             transcript_scalar.absorb(*eval);
         }
@@ -215,6 +231,14 @@ impl<'a, C: CurveAffine> Proof<C> {
                 eval: lookup.permuted_table_eval,
             });
 
+            // Open lookup input commitments at \omega^{-1} x_3
+            let x_3_inv = vk.domain.rotate_omega(x_3, Rotation(-1));
+            queries.push(VerifierQuery {
+                point: x_3_inv,
+                commitment: &lookup.permuted_input_commitment,
+                eval: lookup.permuted_input_inv_eval,
+            });
+
             // Open lookup product commitments at \omega^{-1} x_3
             let x_3_inv = vk.domain.rotate_omega(x_3, Rotation(-1));
             queries.push(VerifierQuery {
@@ -301,11 +325,11 @@ impl<'a, C: CurveAffine> Proof<C> {
         &self,
         params: &'a Params<C>,
         vk: &VerifyingKey<C>,
+        theta: C::Scalar,
         beta: C::Scalar,
         gamma: C::Scalar,
         x_2: C::Scalar,
         x_3: C::Scalar,
-        theta: C::Scalar,
     ) -> Result<(), Error> {
         // x_3^n
         let x_3n = x_3.pow(&[params.n as u64, 0, 0, 0]);
@@ -320,13 +344,14 @@ impl<'a, C: CurveAffine> Proof<C> {
         for (lookup, lookup_proof) in vk.cs.lookups.iter().zip(self.lookup_proofs.iter()) {
             let lookup_evaluation = lookup_proof.evaluate_lookup_constraints(
                 &vk.cs,
+                theta,
                 beta,
                 gamma,
-                theta,
                 l_0,
                 lookup,
                 &self.advice_evals,
                 &self.fixed_evals,
+                &self.aux_evals,
             );
             lookup_evaluations.extend(lookup_evaluation);
         }

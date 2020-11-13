@@ -1,4 +1,4 @@
-use super::super::ConstraintSystem;
+use super::super::{circuit::Any, ConstraintSystem};
 use super::{Lookup, Proof};
 use crate::arithmetic::{CurveAffine, Field};
 
@@ -11,13 +11,14 @@ impl<C: CurveAffine> Proof<C> {
     pub fn evaluate_lookup_constraints(
         &self,
         cs: &ConstraintSystem<C::Scalar>,
+        theta: C::Scalar,
         beta: C::Scalar,
         gamma: C::Scalar,
-        theta: C::Scalar,
         l_0: C::Scalar,
         lookup: &Lookup,
         advice_evals: &[C::Scalar],
         fixed_evals: &[C::Scalar],
+        aux_evals: &[C::Scalar],
     ) -> Vec<C::Scalar> {
         let mut constraints = Vec::with_capacity(4);
         // l_0(X) * (1 - z'(X)) = 0
@@ -36,7 +37,12 @@ impl<C: CurveAffine> Proof<C> {
             let mut right = self.product_inv_eval;
             let mut input_term = C::Scalar::zero();
             for &input in lookup.input_columns.iter() {
-                let eval = advice_evals[cs.get_any_query_index(input, 0)].clone();
+                let index = cs.get_any_query_index(input, 0);
+                let eval = match input.column_type() {
+                    Any::Advice => advice_evals[index].clone(),
+                    Any::Fixed => fixed_evals[index].clone(),
+                    Any::Aux => aux_evals[index].clone(),
+                };
                 input_term *= &theta;
                 input_term += &eval;
             }
@@ -44,7 +50,12 @@ impl<C: CurveAffine> Proof<C> {
 
             let mut table_term = C::Scalar::zero();
             for &table in lookup.table_columns.iter() {
-                let eval = fixed_evals[cs.get_any_query_index(table, 0)].clone();
+                let index = cs.get_any_query_index(table, 0);
+                let eval = match table.column_type() {
+                    Any::Advice => advice_evals[index].clone(),
+                    Any::Fixed => fixed_evals[index].clone(),
+                    Any::Aux => aux_evals[index].clone(),
+                };
                 table_term *= &theta;
                 table_term += &eval;
             }
