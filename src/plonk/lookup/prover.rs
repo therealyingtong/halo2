@@ -140,8 +140,8 @@ impl<C: CurveAffine> LookupData<C> {
     /// This method returns (A', S') if no errors are encountered.
     fn permute_column_pair(
         domain: &EvaluationDomain<C::Scalar>,
-        input_value: &Polynomial<C::Scalar, LagrangeCoeff>,
-        table_value: &Polynomial<C::Scalar, LagrangeCoeff>,
+        input_column: &Polynomial<C::Scalar, LagrangeCoeff>,
+        table_column: &Polynomial<C::Scalar, LagrangeCoeff>,
     ) -> Result<
         (
             Polynomial<C::Scalar, LagrangeCoeff>,
@@ -149,25 +149,25 @@ impl<C: CurveAffine> LookupData<C> {
         ),
         Error,
     > {
-        let mut permuted_input_value = input_value.clone();
+        let mut permuted_input_column = input_column.clone();
 
         // Sort input lookup column values
-        permuted_input_value.sort();
+        permuted_input_column.sort();
 
         // A BTreeMap of each unique element in the table column and its count
         let mut leftover_table_map: BTreeMap<C::Scalar, u32> =
-            table_value.iter().fold(BTreeMap::new(), |mut acc, coeff| {
+            table_column.iter().fold(BTreeMap::new(), |mut acc, coeff| {
                 *acc.entry(*coeff).or_insert(0) += 1;
                 acc
             });
         let mut repeated_input_rows = vec![];
-        let mut permuted_table_coeffs = vec![C::Scalar::zero(); table_value.len()];
+        let mut permuted_table_coeffs = vec![C::Scalar::zero(); table_column.len()];
 
-        for row in 0..permuted_input_value.len() {
-            let input_value = permuted_input_value[row];
+        for row in 0..permuted_input_column.len() {
+            let input_value = permuted_input_column[row];
 
             // If this is the first occurence of `input_value` in the input column
-            if row == 0 || input_value != permuted_input_value[row - 1] {
+            if row == 0 || input_value != permuted_input_column[row - 1] {
                 permuted_table_coeffs[row] = input_value;
                 // Remove one instance of input_value from leftover_table_map
                 if let Some(count) = leftover_table_map.get_mut(&input_value) {
@@ -191,17 +191,20 @@ impl<C: CurveAffine> LookupData<C> {
         }
         assert!(repeated_input_rows.is_empty());
 
-        let mut permuted_table_value = domain.empty_lagrange();
-        parallelize(&mut permuted_table_value, |permuted_table_value, start| {
-            for (permuted_table_value, permuted_table_coeff) in permuted_table_value
-                .iter_mut()
-                .zip(permuted_table_coeffs[start..].iter())
-            {
-                *permuted_table_value += permuted_table_coeff;
-            }
-        });
+        let mut permuted_table_column = domain.empty_lagrange();
+        parallelize(
+            &mut permuted_table_column,
+            |permuted_table_column, start| {
+                for (permuted_table_value, permuted_table_coeff) in permuted_table_column
+                    .iter_mut()
+                    .zip(permuted_table_coeffs[start..].iter())
+                {
+                    *permuted_table_value += permuted_table_coeff;
+                }
+            },
+        );
 
-        Ok((permuted_input_value, permuted_table_value))
+        Ok((permuted_input_column, permuted_table_column))
     }
 
     /// Given a Lookup with input columns, table columns, and the permuted
@@ -250,8 +253,8 @@ impl<C: CurveAffine> LookupData<C> {
         //
         // where a_j(X) is the jth input column in this lookup,
         // where a'(X) is the compression of the permuted input columns,
-        // q_j(X) is the jth table column in this lookup,
-        // q'(X) is the compression of the permuted table columns,
+        // s_j(X) is the jth table column in this lookup,
+        // s'(X) is the compression of the permuted table columns,
         // and i is the ith row of the column.
         let mut lookup_product = vec![C::Scalar::one(); params.n as usize];
 
@@ -273,7 +276,7 @@ impl<C: CurveAffine> LookupData<C> {
 
         // Finish the computation of the entire fraction by computing the numerators
         // (a_1(X) + \theta a_2(X) + ... + \beta) (s_1(X) + \theta s_2(X) + ... + \gamma)
-        // Compress unpermuted InputColumns
+        // Compress unpermuted input columns
         let mut input_term = vec![C::Scalar::zero(); params.n as usize];
         for unpermuted_input_value in unpermuted_input_values.iter() {
             parallelize(&mut input_term, |input_term, start| {
@@ -287,7 +290,7 @@ impl<C: CurveAffine> LookupData<C> {
             });
         }
 
-        // Compress unpermuted TableColumns
+        // Compress unpermuted table columns
         let mut table_term = vec![C::Scalar::zero(); params.n as usize];
         for unpermuted_table_value in unpermuted_table_values.iter() {
             parallelize(&mut table_term, |table_term, start| {
