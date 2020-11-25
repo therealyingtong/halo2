@@ -5,8 +5,9 @@
 
 use super::{Coeff, LagrangeCoeff, Polynomial};
 use crate::arithmetic::{best_fft, best_multiexp, parallelize, Curve, CurveAffine, Field};
-use crate::transcript::Hasher;
-use std::ops::{Add, AddAssign, Mul, MulAssign};
+use crate::transcript::{Hasher, Transcript};
+use std::marker::PhantomData;
+use std::ops::{Add, AddAssign, Deref, Mul, MulAssign};
 
 mod msm;
 mod prover;
@@ -14,6 +15,78 @@ mod verifier;
 
 pub use msm::MSM;
 pub use verifier::{Accumulator, Guard};
+
+/// This is a 128-bit verifier challenge.
+#[derive(Copy, Clone, Debug)]
+pub struct Challenge(pub(crate) u128);
+
+impl Challenge {
+    /// Obtains a new challenge from the transcript.
+    pub fn get<C, HBase, HScalar>(transcript: &mut Transcript<C, HBase, HScalar>) -> Challenge
+    where
+        C: CurveAffine,
+        HBase: Hasher<C::Base>,
+        HScalar: Hasher<C::Scalar>,
+    {
+        Challenge(transcript.squeeze().get_lower_128())
+    }
+}
+
+/// The scalar representation of a verifier challenge.
+///
+/// The `T` type can be used to scope the challenge to a specific context, or set to `()`
+/// if no context is required.
+#[derive(Copy, Clone, Debug)]
+pub struct ChallengeScalar<F: Field, T> {
+    inner: F,
+    _marker: PhantomData<T>,
+}
+
+impl<F: Field, T> From<Challenge> for ChallengeScalar<F, T> {
+    /// This algorithm applies the mapping of Algorithm 1 from the
+    /// [Halo](https://eprint.iacr.org/2019/1021) paper.
+    fn from(challenge: Challenge) -> Self {
+        let mut acc = (F::ZETA + F::one()).double();
+
+        for i in (0..64).rev() {
+            let should_negate = ((challenge.0 >> ((i << 1) + 1)) & 1) == 1;
+            let should_endo = ((challenge.0 >> (i << 1)) & 1) == 1;
+
+            let q = if should_negate { -F::one() } else { F::one() };
+            let q = if should_endo { q * F::ZETA } else { q };
+            acc = acc + q + acc;
+        }
+
+        ChallengeScalar {
+            inner: acc,
+            _marker: PhantomData::default(),
+        }
+    }
+}
+
+impl<F: Field, T> ChallengeScalar<F, T> {
+    /// Obtains a new challenge from the transcript.
+    pub fn get<C, HBase, HScalar>(transcript: &mut Transcript<C, HBase, HScalar>) -> Self
+    where
+        C: CurveAffine,
+        HBase: Hasher<C::Base>,
+        HScalar: Hasher<C::Scalar>,
+    {
+        Challenge::get(transcript).into()
+    }
+}
+
+impl<F: Field, T> Deref for ChallengeScalar<F, T> {
+    type Target = F;
+
+    fn deref(&self) -> &F {
+        &self.inner
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct X6 {}
+pub(crate) type ChallengeX6<F> = ChallengeScalar<F, X6>;
 
 /// These are the public parameters for the polynomial commitment scheme.
 #[derive(Debug)]
@@ -250,9 +323,7 @@ fn test_opening_proof() {
         commitment::{Blind, Params},
         EvaluationDomain,
     };
-    use crate::arithmetic::{
-        eval_polynomial, get_challenge_scalar, Challenge, Curve, CurveAffine, Field,
-    };
+    use crate::arithmetic::{eval_polynomial, Curve, Field};
     use crate::transcript::{DummyHash, Transcript};
     use crate::tweedle::{EpAffine, Fp, Fq};
 
@@ -271,10 +342,9 @@ fn test_opening_proof() {
 
     let mut transcript = Transcript::<_, DummyHash<_>, DummyHash<_>>::new();
     transcript.absorb_point(&p).unwrap();
-    let x_packed = transcript.squeeze().get_lower_128();
-    let x: Fq = get_challenge_scalar(Challenge(x_packed));
+    let x = ChallengeX6::get(&mut transcript);
     // Evaluate the polynomial
-    let v = eval_polynomial(&px, x);
+    let v = eval_polynomial(&px, *x);
 
     transcript.absorb_base(Fp::from_bytes(&v.to_bytes()).unwrap()); // unlikely to fail since p ~ q
 
