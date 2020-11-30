@@ -187,6 +187,10 @@ impl<C: CurveAffine> Proof<C> {
             None
         };
 
+        // Vanishing argument starts here.
+        // - Doesn't care about fixed vs advice etc; just needs to do the same thing for all columns.
+        // - It's special wrt PLONK itself, not the columns.
+
         // Obtain challenge for keeping all separate gates linearly independent
         let y = ChallengeY::<C::Scalar>::get(&mut transcript);
 
@@ -276,23 +280,24 @@ impl<C: CurveAffine> Proof<C> {
             })
             .collect();
 
-        let h_evals: Vec<_> = h_pieces
-            .iter()
-            .map(|poly| eval_polynomial(poly, *x))
-            .collect();
-
         // Hash each advice evaluation
         for eval in advice_evals
             .iter()
             .chain(aux_evals.iter())
             .chain(fixed_evals.iter())
-            .chain(h_evals.iter())
         {
             transcript.absorb_scalar(*eval);
         }
 
+        let vanishing = vanishing.evaluate(pk, x, &mut transcript);
+
         // Evaluate the permutations, if any, at omega^i x.
         let permutations = permutations.map(|p| p.evaluate(pk, x, &mut transcript));
+
+        // Vanishing argument ends here
+        // We then have both the vanishing argument's "proof" and the openings of h(X)
+        // (as something that can be input to multiopen)
+        let vanishing = ();
 
         let instances =
             iter::empty()
@@ -321,18 +326,18 @@ impl<C: CurveAffine> Proof<C> {
                     },
                 ))
                 // We query the h(X) polynomial at x
-                .chain(
-                    h_pieces
-                        .iter()
-                        .zip(h_blinds.iter())
-                        .zip(h_evals.iter())
-                        .map(|((h_poly, h_blind), h_eval)| ProverQuery {
-                            point: *x,
-                            poly: h_poly,
-                            blind: *h_blind,
-                            eval: *h_eval,
-                        }),
-                );
+                .chain(vanishing.open(x));
+                //     h_pieces
+                //         .iter()
+                //         .zip(h_blinds.iter())
+                //         .zip(h_evals.iter())
+                //         .map(|((h_poly, h_blind), h_eval)| ProverQuery {
+                //             point: *x,
+                //             poly: h_poly,
+                //             blind: *h_blind,
+                //             eval: *h_eval,
+                //         }),
+                // );
 
         let multiopening = multiopen::Proof::create(
             params,
@@ -349,12 +354,13 @@ impl<C: CurveAffine> Proof<C> {
 
         Ok(Proof {
             advice_commitments,
-            h_commitments,
+            // h_commitments,
+            vanishing: vanishing.build(),
             permutations: permutations.map(|p| p.build()),
             advice_evals,
             fixed_evals,
             aux_evals,
-            h_evals,
+            // h_evals,
             multiopening,
         })
     }

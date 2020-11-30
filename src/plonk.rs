@@ -14,6 +14,8 @@ use crate::poly::{
 mod circuit;
 mod keygen;
 mod permutation;
+mod vanishing;
+
 mod prover;
 mod verifier;
 
