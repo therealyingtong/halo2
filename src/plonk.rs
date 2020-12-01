@@ -8,11 +8,12 @@
 use crate::arithmetic::CurveAffine;
 use crate::poly::{
     commitment::ChallengeScalar, multiopen, Coeff, EvaluationDomain, ExtendedLagrangeCoeff,
-    Polynomial,
+    LagrangeCoeff, Polynomial,
 };
 
 mod circuit;
 mod keygen;
+mod lookup;
 mod permutation;
 mod prover;
 mod verifier;
@@ -39,6 +40,7 @@ pub struct ProvingKey<C: CurveAffine> {
     vk: VerifyingKey<C>,
     // TODO: get rid of this?
     l0: Polynomial<C::Scalar, ExtendedLagrangeCoeff>,
+    fixed_values: Vec<Polynomial<C::Scalar, LagrangeCoeff>>,
     fixed_polys: Vec<Polynomial<C::Scalar, Coeff>>,
     fixed_cosets: Vec<Polynomial<C::Scalar, ExtendedLagrangeCoeff>>,
     permutations: Vec<permutation::ProvingKey<C>>,
@@ -51,6 +53,7 @@ pub struct Proof<C: CurveAffine> {
     advice_commitments: Vec<C>,
     h_commitments: Vec<C>,
     permutations: Option<permutation::Proof<C>>,
+    lookup_proofs: Vec<lookup::Proof<C>>,
     advice_evals: Vec<C::Scalar>,
     aux_evals: Vec<C::Scalar>,
     fixed_evals: Vec<C::Scalar>,
@@ -93,6 +96,10 @@ impl<C: CurveAffine> VerifyingKey<C> {
 }
 
 #[derive(Clone, Copy, Debug)]
+pub(crate) struct Theta;
+pub(crate) type ChallengeTheta<F> = ChallengeScalar<F, Theta>;
+
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct Beta;
 pub(crate) type ChallengeBeta<F> = ChallengeScalar<F, Beta>;
 
@@ -114,7 +121,7 @@ fn test_proving() {
     use crate::poly::commitment::{Blind, Params};
     use crate::transcript::DummyHash;
     use crate::tweedle::{EqAffine, Fp, Fq};
-    use circuit::{Advice, Column, Fixed};
+    use circuit::{Advice, Any, Column, Fixed};
     use std::marker::PhantomData;
     const K: u32 = 5;
 
@@ -137,6 +144,8 @@ fn test_proving() {
         sc: Column<Fixed>,
         sm: Column<Fixed>,
         sp: Column<Fixed>,
+        sl: Column<Fixed>,
+        sl2: Column<Fixed>,
 
         perm: usize,
         perm2: usize,
@@ -153,10 +162,12 @@ fn test_proving() {
         fn public_input<F>(&mut self, f: F) -> Result<Variable, Error>
         where
             F: FnOnce() -> Result<FF, Error>;
+        fn lookup_table(&mut self, values: &[Vec<FF>]) -> Result<(), Error>;
     }
 
     struct MyCircuit<F: Field> {
         a: Option<F>,
+        lookup_arrays: Vec<Vec<F>>,
     }
 
     struct StandardPLONK<'a, F: Field, CS: Assignment<F> + 'a> {
@@ -290,6 +301,18 @@ fn test_proving() {
 
             Ok(Variable(self.config.a, index))
         }
+        fn lookup_table(&mut self, values: &[Vec<FF>]) -> Result<(), Error> {
+            for (&value_0, &value_1) in values[0].iter().zip(values[1].iter()) {
+                let index = self.current_gate;
+
+                self.current_gate += 1;
+                self.cs
+                    .assign_fixed(self.config.sl, index, || Ok(value_0))?;
+                self.cs
+                    .assign_fixed(self.config.sl2, index, || Ok(value_1))?;
+            }
+            Ok(())
+        }
     }
 
     impl<F: Field> Circuit<F> for MyCircuit<F> {
@@ -312,6 +335,30 @@ fn test_proving() {
             let sb = meta.fixed_column();
             let sc = meta.fixed_column();
             let sp = meta.fixed_column();
+            let sl = meta.fixed_column();
+            let sl2 = meta.fixed_column();
+
+            /*
+             *    A    B        ...  sl   sl2
+             * [
+             *   aux   0        ...  0    0
+             *   a     a        ...  0    0
+             *   a     a^2      ...  0    0
+             *   a     a        ...  0    0
+             *   a     a^2      ...  0    0
+             *   ...   ...      ...  ...  ...
+             *   ...   ...      ...  aux  0
+             *   ...   ...      ...  a    a
+             *   ...   ...      ...  a    a^2
+             *   ...   ...      ...  0    0
+             *
+             * ]
+             */
+            meta.lookup(&[Column::<Any>::from(a)], &[Column::<Any>::from(sl)]);
+            meta.lookup(
+                &[Column::<Any>::from(a), Column::<Any>::from(b)],
+                &[Column::<Any>::from(sl), Column::<Any>::from(sl2)],
+            );
 
             meta.create_gate(|meta| {
                 let d = meta.query_advice(d, 1);
@@ -348,6 +395,8 @@ fn test_proving() {
                 sc,
                 sm,
                 sp,
+                sl,
+                sl2,
                 perm,
                 perm2,
             }
@@ -384,22 +433,33 @@ fn test_proving() {
                 cs.copy(b1, c0)?;
             }
 
+            cs.lookup_table(&self.lookup_arrays)?;
+
             Ok(())
         }
     }
 
-    let circuit: MyCircuit<Fp> = MyCircuit {
-        a: Some(Fp::random()),
+    let a = Fp::random();
+    let a_squared = a * &a;
+    let aux = Fp::one() + Fp::one();
+    let lookup_array = vec![aux, a, a, Fp::zero()];
+    let lookup_array_2 = vec![Fp::zero(), a, a_squared, Fp::zero()];
+
+    let empty_circuit: MyCircuit<Fp> = MyCircuit {
+        a: None,
+        lookup_arrays: vec![lookup_array.clone(), lookup_array_2.clone()],
     };
 
-    let empty_circuit: MyCircuit<Fp> = MyCircuit { a: None };
+    let circuit: MyCircuit<Fp> = MyCircuit {
+        a: Some(a),
+        lookup_arrays: vec![lookup_array, lookup_array_2],
+    };
 
     // Initialize the proving key
     let pk = keygen(&params, &empty_circuit).expect("keygen should not fail");
 
     let mut pubinputs = pk.get_vk().get_domain().empty_lagrange();
-    pubinputs[0] = Fp::one();
-    pubinputs[0] += Fp::one();
+    pubinputs[0] = aux;
     let pubinput = params
         .commit_lagrange(&pubinputs, Blind::default())
         .to_affine();
