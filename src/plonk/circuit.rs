@@ -3,7 +3,7 @@ use core::ops::{Add, Mul};
 use std::collections::BTreeMap;
 use std::convert::TryFrom;
 
-use super::Error;
+use super::{permutation, Error};
 use crate::arithmetic::Field;
 use crate::poly::Rotation;
 
@@ -312,7 +312,7 @@ pub struct ConstraintSystem<F> {
 
     // Vector of permutation arguments, where each corresponds to a sequence of columns
     // that are involved in a permutation argument.
-    pub(crate) permutations: Vec<Vec<Column<Advice>>>,
+    pub(crate) permutations: Vec<permutation::Argument>,
 }
 
 impl<F: Field> Default for ConstraintSystem<F> {
@@ -347,7 +347,8 @@ impl<F: Field> ConstraintSystem<F> {
         for column in columns {
             self.query_advice_index(*column, 0);
         }
-        self.permutations.push(columns.to_vec());
+        self.permutations
+            .push(permutation::Argument::new(columns.to_vec()));
 
         index
     }
