@@ -2,13 +2,15 @@ use std::iter;
 
 use super::{
     circuit::{Advice, Assignment, Circuit, Column, ConstraintSystem, Fixed},
-    permutation, ChallengeBeta, ChallengeGamma, ChallengeX, ChallengeY, Error, Proof, ProvingKey,
+    lookup::{self, prover::LookupData},
+    permutation, ChallengeBeta, ChallengeGamma, ChallengeTheta, ChallengeX, ChallengeY, Error,
+    Proof, ProvingKey,
 };
 use crate::arithmetic::{eval_polynomial, Curve, CurveAffine, Field};
 use crate::poly::{
     commitment::{Blind, Params},
     multiopen::{self, ProverQuery},
-    LagrangeCoeff, Polynomial,
+    LagrangeCoeff, Polynomial, Rotation,
 };
 use crate::transcript::{Hasher, Transcript};
 
@@ -167,6 +169,36 @@ impl<C: CurveAffine> Proof<C> {
             })
             .collect();
 
+        // Sample theta challenge for keeping lookup columns linearly independent
+        let theta = ChallengeTheta::get(&mut transcript);
+
+        // Construct permuted values for each lookup
+        let mut lookups: Vec<LookupData<C>> = pk
+            .vk
+            .cs
+            .lookups
+            .iter()
+            .map(|lookup| LookupData::<C>::new(lookup))
+            .collect();
+
+        for lookup in lookups.iter_mut() {
+            let permuted = lookup.construct_permuted(
+                &pk,
+                &params,
+                &domain,
+                *theta,
+                &witness.advice,
+                &pk.fixed_values,
+                &aux,
+            )?;
+            transcript
+                .absorb_point(&permuted.permuted_input_commitment)
+                .map_err(|_| Error::TranscriptError)?;
+            transcript
+                .absorb_point(&permuted.permuted_table_commitment)
+                .map_err(|_| Error::TranscriptError)?;
+        }
+
         // Sample beta challenge
         let beta = ChallengeBeta::get(&mut transcript);
 
@@ -187,7 +219,23 @@ impl<C: CurveAffine> Proof<C> {
             None
         };
 
-        // Obtain challenge for keeping all separate gates linearly independent
+        for lookup in lookups.iter_mut() {
+            let product = lookup.construct_product(
+                &pk,
+                &params,
+                *beta,
+                *gamma,
+                *theta,
+                &witness.advice,
+                &pk.fixed_values,
+                &aux,
+            );
+            // Hash each lookup product commitment
+            transcript
+                .absorb_point(&product.product_commitment)
+                .map_err(|_| Error::TranscriptError)?;
+        }
+
         let y = ChallengeY::<C::Scalar>::get(&mut transcript);
 
         // Evaluate the h(X) polynomial's constraint system expressions for the permutation constraints, if any.
@@ -212,6 +260,17 @@ impl<C: CurveAffine> Proof<C> {
             }))
             // Permutation constraints, if any.
             .chain(permutation_expressions.into_iter().flatten())
+            .chain(lookups.iter().flat_map(|lookup| {
+                lookup.construct_constraints(
+                    &pk,
+                    *beta,
+                    *gamma,
+                    *theta,
+                    &advice_cosets,
+                    &pk.fixed_cosets,
+                    &aux_cosets,
+                )
+            }))
             .fold(domain.empty_extended(), |h_poly, v| h_poly * *y + &v);
 
         // Divide by t(X) = X^{params.n} - 1.
@@ -251,6 +310,12 @@ impl<C: CurveAffine> Proof<C> {
 
         let x = ChallengeX::get(&mut transcript);
 
+        let mut lookup_proofs: Vec<lookup::Proof<C>> = Vec::new();
+        for lookup in lookups.iter_mut() {
+            let proof = lookup.construct_proof(&domain, *x);
+            lookup_proofs.push(proof);
+        }
+
         // Evaluate polynomials at omega^i x
         let advice_evals: Vec<_> = meta
             .advice_queries
@@ -287,6 +352,20 @@ impl<C: CurveAffine> Proof<C> {
             .chain(aux_evals.iter())
             .chain(fixed_evals.iter())
             .chain(h_evals.iter())
+            .chain(
+                lookup_proofs
+                    .iter()
+                    .flat_map(|proof| {
+                        std::iter::empty()
+                            .chain(Some(proof.product_eval))
+                            .chain(Some(proof.product_inv_eval))
+                            .chain(Some(proof.permuted_input_eval))
+                            .chain(Some(proof.permuted_input_inv_eval))
+                            .chain(Some(proof.permuted_table_eval))
+                    })
+                    .collect::<Vec<_>>()
+                    .iter(),
+            )
         {
             transcript.absorb_scalar(*eval);
         }
@@ -332,6 +411,50 @@ impl<C: CurveAffine> Proof<C> {
                             blind: *h_blind,
                             eval: *h_eval,
                         }),
+                )
+                .chain(
+                    lookups
+                        .iter()
+                        .zip(lookup_proofs.iter())
+                        .flat_map(|(lookup, proof)| {
+                            vec![
+                                // Open lookup product commitments at x
+                                ProverQuery {
+                                    point: *x,
+                                    poly: &lookup.product.as_ref().unwrap().product_poly,
+                                    blind: lookup.product.clone().unwrap().product_blind,
+                                    eval: proof.product_eval,
+                                },
+                                // Open lookup input commitments at x
+                                ProverQuery {
+                                    point: *x,
+                                    poly: &lookup.permuted.as_ref().unwrap().permuted_input_poly,
+                                    blind: lookup.permuted.clone().unwrap().permuted_input_blind,
+                                    eval: proof.permuted_input_eval,
+                                },
+                                // Open lookup table commitments at x
+                                ProverQuery {
+                                    point: *x,
+                                    poly: &lookup.permuted.as_ref().unwrap().permuted_table_poly,
+                                    blind: lookup.permuted.clone().unwrap().permuted_table_blind,
+                                    eval: proof.permuted_table_eval,
+                                },
+                                // Open lookup input commitments at \omega^{-1} x
+                                ProverQuery {
+                                    point: domain.rotate_omega(*x, Rotation(-1)),
+                                    poly: &lookup.permuted.as_ref().unwrap().permuted_input_poly,
+                                    blind: lookup.permuted.clone().unwrap().permuted_input_blind,
+                                    eval: proof.permuted_input_inv_eval,
+                                },
+                                // Open lookup product commitments at \omega^{-1} x
+                                ProverQuery {
+                                    point: domain.rotate_omega(*x, Rotation(-1)),
+                                    poly: &lookup.product.as_ref().unwrap().product_poly,
+                                    blind: lookup.product.clone().unwrap().product_blind,
+                                    eval: proof.product_inv_eval,
+                                },
+                            ]
+                        }),
                 );
 
         let multiopening = multiopen::Proof::create(
@@ -351,6 +474,7 @@ impl<C: CurveAffine> Proof<C> {
             advice_commitments,
             h_commitments,
             permutations: permutations.map(|p| p.build()),
+            lookup_proofs,
             advice_evals,
             fixed_evals,
             aux_evals,

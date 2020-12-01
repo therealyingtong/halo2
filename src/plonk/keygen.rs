@@ -101,8 +101,8 @@ where
 
     let fixed_polys: Vec<_> = assembly
         .fixed
-        .into_iter()
-        .map(|poly| domain.lagrange_to_coeff(poly))
+        .iter()
+        .map(|poly| domain.lagrange_to_coeff(poly.clone()))
         .collect();
 
     let fixed_cosets = cs
@@ -129,6 +129,7 @@ where
             cs,
         },
         l0,
+        fixed_values: assembly.fixed,
         fixed_polys,
         fixed_cosets,
         permutations: permutation_pks,
