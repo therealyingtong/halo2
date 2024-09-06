@@ -79,6 +79,11 @@ impl<F> Polynomial<F, Coeff> {
             _marker: PhantomData,
         }
     }
+
+    /// Coeffs of polynomial
+    pub fn coeffs(&self) -> &[F] {
+        &self.values
+    }
 }
 
 impl<F, B> Index<usize> for Polynomial<F, B> {
