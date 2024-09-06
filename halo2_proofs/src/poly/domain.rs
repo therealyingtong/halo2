@@ -846,8 +846,8 @@ fn test_coeff_to_extended_part() {
 #[test]
 fn bench_coeff_to_extended_parts() {
     use halo2curves::pasta::pallas::Scalar;
-    use rand_core::OsRng;
     use instant::Instant;
+    use rand_core::OsRng;
 
     let k = 20;
     let domain = EvaluationDomain::<Scalar>::new(3, k);
@@ -934,8 +934,8 @@ fn test_lagrange_vecs_to_extended() {
 #[test]
 fn bench_lagrange_vecs_to_extended() {
     use halo2curves::pasta::pallas::Scalar;
-    use rand_core::OsRng;
     use instant::Instant;
+    use rand_core::OsRng;
 
     let rng = OsRng;
     let domain = EvaluationDomain::<Scalar>::new(8, 10);

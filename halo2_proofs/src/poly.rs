@@ -71,6 +71,16 @@ pub struct Polynomial<F, B> {
     _marker: PhantomData<B>,
 }
 
+impl<F> Polynomial<F, Coeff> {
+    /// Polynomial from coeffs
+    pub fn from_coeffs(values: Vec<F>) -> Self {
+        Self {
+            values,
+            _marker: PhantomData,
+        }
+    }
+}
+
 impl<F, B> Index<usize> for Polynomial<F, B> {
     type Output = F;
 
