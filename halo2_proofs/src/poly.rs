@@ -6,7 +6,9 @@ use crate::arithmetic::parallelize;
 use crate::helpers::SerdePrimeField;
 use crate::plonk::Assigned;
 use crate::SerdeFormat;
+use ff::WithSmallOrderMulGroup;
 use group::ff::{BatchInvert, Field};
+use halo2curves::fft::best_fft;
 #[cfg(feature = "parallel-poly-read")]
 use maybe_rayon::{iter::ParallelIterator, prelude::ParallelSliceMut};
 
@@ -345,6 +347,43 @@ impl<F: Field, B: Basis> Mul<F> for Polynomial<F, B> {
         });
 
         self
+    }
+}
+
+impl<F: Field + WithSmallOrderMulGroup<3>> Mul<Polynomial<F, Coeff>> for Polynomial<F, Coeff> {
+    type Output = Polynomial<F, Coeff>;
+
+    #[allow(clippy::suspicious_arithmetic_impl)]
+    fn mul(self, rhs: Polynomial<F, Coeff>) -> Self::Output {
+        // Extend both polynomials coefficient vectors to their nearest power-of-2 resultant degree
+        let resulting_degree = (self.num_coeffs() + (rhs.num_coeffs() - 1)).next_power_of_two();
+        let mut self_extended_coeffs: Vec<_> = self.coeffs().to_vec();
+        self_extended_coeffs.resize(resulting_degree, F::ZERO);
+
+        let mut rhs_extended_coeffs: Vec<_> = rhs.coeffs().to_vec();
+        rhs_extended_coeffs.resize(resulting_degree, F::ZERO);
+
+        // Take the forward FFT of the two polynomials
+        let log_n = resulting_degree.ilog2() as u32;
+        let domain: EvaluationDomain<F> = EvaluationDomain::new(1, log_n);
+        best_fft(&mut self_extended_coeffs, domain.get_omega(), domain.k());
+        best_fft(&mut rhs_extended_coeffs, domain.get_omega(), domain.k());
+
+        // Multiply the two polynomials in the FFT image
+        let mut mul_res = self_extended_coeffs
+            .iter()
+            .zip(rhs_extended_coeffs.iter())
+            .map(|(&val, &rhs)| val * rhs)
+            .collect::<Vec<_>>();
+
+        // Take the inverse FFT of the result to get the coefficients of the product
+        best_fft(&mut mul_res, domain.get_omega_inv(), domain.k());
+        let n_inv = F::from(domain.get_n()).invert().unwrap();
+        let coeffs = mul_res.iter().map(|&v| v * n_inv).collect();
+        Polynomial {
+            values: coeffs,
+            _marker: PhantomData,
+        }
     }
 }
 
