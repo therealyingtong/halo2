@@ -6,7 +6,7 @@ use crate::arithmetic::parallelize;
 use crate::helpers::SerdePrimeField;
 use crate::plonk::Assigned;
 use crate::SerdeFormat;
-use ff::WithSmallOrderMulGroup;
+use ff::{PrimeField, WithSmallOrderMulGroup};
 use group::ff::{BatchInvert, Field};
 use halo2curves::fft::best_fft;
 #[cfg(feature = "parallel-poly-read")]
@@ -15,7 +15,7 @@ use maybe_rayon::{iter::ParallelIterator, prelude::ParallelSliceMut};
 use std::fmt::Debug;
 use std::io;
 use std::marker::PhantomData;
-use std::ops::{Add, Deref, DerefMut, Index, IndexMut, Mul, Range, RangeFrom, RangeFull, Sub};
+use std::ops::{Add, Deref, DerefMut, Div, Index, IndexMut, Mul, Range, RangeFrom, RangeFull, Sub};
 
 /// Generic commitment scheme structures
 pub mod commitment;
@@ -350,21 +350,87 @@ impl<F: Field, B: Basis> Mul<F> for Polynomial<F, B> {
     }
 }
 
+impl<F: Field> Polynomial<F, Coeff> {
+    /// Returns true if the polynomial is the zero polynomial
+    pub fn is_zero(&self) -> bool {
+        self.coeffs().iter().fold(F::ZERO, |acc, val| acc + val) == F::ZERO
+    }
+}
+
+impl<F: PrimeField + WithSmallOrderMulGroup<3>> Polynomial<F, Coeff> {
+    /// Divide with quotient and remainder
+    pub fn divide_with_q_and_r(&self, rhs: Self) -> (Self, Self) {
+        if self.is_zero() || self.num_coeffs() < rhs.num_coeffs() {
+            return (
+                Polynomial {
+                    values: vec![F::ZERO],
+                    _marker: PhantomData,
+                },
+                self.clone(),
+            );
+        }
+
+        let res_num_coeffs = self.num_coeffs() - rhs.num_coeffs();
+
+        let mut quotient = vec![F::ZERO; res_num_coeffs + 1];
+        let mut remainder = self.clone();
+
+        // Can unwrap here because we know self is not zero.
+        let divisor_leading_inv = rhs.last().unwrap().invert().unwrap();
+        while !remainder.is_zero() && remainder.num_coeffs() >= rhs.num_coeffs() {
+            let cur_q_coeff = *remainder.values.last().unwrap() * divisor_leading_inv;
+            let cur_q_degree = remainder.num_coeffs() - rhs.num_coeffs();
+            quotient[cur_q_degree] = cur_q_coeff;
+
+            for (i, div_coeff) in rhs.iter().enumerate() {
+                remainder[cur_q_degree + i] -= &(cur_q_coeff * div_coeff);
+            }
+            while let Some(true) = remainder.values.last().map(|c| c.is_zero().into()) {
+                remainder.values.pop();
+            }
+        }
+
+        if *quotient.last().unwrap() == F::ZERO {
+            quotient.pop();
+        }
+
+        (
+            Polynomial {
+                values: quotient,
+                _marker: PhantomData,
+            },
+            Polynomial {
+                values: remainder.to_vec(),
+                _marker: PhantomData,
+            },
+        )
+    }
+}
+
+impl<F: PrimeField + WithSmallOrderMulGroup<3>> Div<Polynomial<F, Coeff>> for Polynomial<F, Coeff> {
+    type Output = Self;
+
+    fn div(self, rhs: Polynomial<F, Coeff>) -> Self::Output {
+        self.divide_with_q_and_r(rhs).0
+    }
+}
+
 impl<F: Field + WithSmallOrderMulGroup<3>> Mul<Polynomial<F, Coeff>> for Polynomial<F, Coeff> {
     type Output = Polynomial<F, Coeff>;
 
     #[allow(clippy::suspicious_arithmetic_impl)]
     fn mul(self, rhs: Polynomial<F, Coeff>) -> Self::Output {
         // Extend both polynomials coefficient vectors to their nearest power-of-2 resultant degree
-        let resulting_degree = (self.num_coeffs() + (rhs.num_coeffs() - 1)).next_power_of_two();
+        let resulting_degree = self.num_coeffs() + (rhs.num_coeffs() - 1);
+        let n = resulting_degree.next_power_of_two();
         let mut self_extended_coeffs: Vec<_> = self.coeffs().to_vec();
-        self_extended_coeffs.resize(resulting_degree, F::ZERO);
+        self_extended_coeffs.resize(n, F::ZERO);
 
         let mut rhs_extended_coeffs: Vec<_> = rhs.coeffs().to_vec();
-        rhs_extended_coeffs.resize(resulting_degree, F::ZERO);
+        rhs_extended_coeffs.resize(n, F::ZERO);
 
         // Take the forward FFT of the two polynomials
-        let log_n = resulting_degree.ilog2() as u32;
+        let log_n = n.ilog2() as u32;
         let domain: EvaluationDomain<F> = EvaluationDomain::new(1, log_n);
         best_fft(&mut self_extended_coeffs, domain.get_omega(), domain.k());
         best_fft(&mut rhs_extended_coeffs, domain.get_omega(), domain.k());
@@ -378,8 +444,13 @@ impl<F: Field + WithSmallOrderMulGroup<3>> Mul<Polynomial<F, Coeff>> for Polynom
 
         // Take the inverse FFT of the result to get the coefficients of the product
         best_fft(&mut mul_res, domain.get_omega_inv(), domain.k());
+        let resulting_num_coeffs = resulting_degree + 1;
+        let zeros = mul_res.split_off(resulting_num_coeffs);
+        assert!(Polynomial::from_coeffs(zeros).is_zero());
+
         let n_inv = F::from(domain.get_n()).invert().unwrap();
         let coeffs = mul_res.iter().map(|&v| v * n_inv).collect();
+
         Polynomial {
             values: coeffs,
             _marker: PhantomData,
@@ -417,5 +488,53 @@ impl Rotation {
     /// The next location in the evaluation domain
     pub fn next() -> Rotation {
         Rotation(1)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ff::Field;
+    use halo2curves::bls12381::Fr;
+    use proptest::prelude::Rng;
+    use rand_core::OsRng;
+
+    fn random_poly<F: Field>(num_coeffs: usize) -> Polynomial<F, Coeff> {
+        let mut rng = OsRng;
+        // Sample a random degree below the bound
+        let mut coeffs = Vec::with_capacity(num_coeffs);
+        for _ in 0..num_coeffs {
+            // Sample a random coefficient
+            coeffs.push(F::random(&mut rng));
+        }
+
+        Polynomial::from_coeffs(coeffs)
+    }
+
+    #[test]
+    fn test_poly_div() {
+        let degree = 256;
+        let a = random_poly::<Fr>(degree);
+        let b = random_poly::<Fr>(degree);
+
+        let ab = a.clone() * b.clone();
+        let res_a = ab.clone() / b.clone();
+        let res_b = ab.clone() / a.clone();
+
+        assert_eq!(a.coeffs(), res_a.coeffs());
+        assert_eq!(b.coeffs(), res_b.coeffs());
+
+        let mut r = vec![Fr::one()];
+        r.resize(degree * 2, Fr::zero());
+        let r = Polynomial::from_coeffs(r);
+
+        let abr = ab + &r;
+        let (res_a, res_r) = abr.divide_with_q_and_r(b.clone());
+        assert_eq!(a.coeffs(), res_a.coeffs());
+        assert_eq!(r.coeffs()[0], res_r.coeffs()[0]);
+
+        let (res_b, res_r) = abr.divide_with_q_and_r(a);
+        assert_eq!(b.coeffs(), res_b.coeffs());
+        assert_eq!(r.coeffs()[0], res_r.coeffs()[0]);
     }
 }
