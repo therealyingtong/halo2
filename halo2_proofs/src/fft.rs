@@ -26,7 +26,7 @@ pub fn fft<Scalar: Field, G: FftGroup<Scalar>>(
 
 #[cfg(test)]
 mod tests {
-    use ark_std::{end_timer, start_timer};
+    // use ark_std::{end_timer, start_timer};
     use ff::Field;
     use halo2curves::bn256::Fr as Scalar;
     use rand_core::OsRng;
@@ -46,7 +46,7 @@ mod tests {
 
         let mut a = input.clone();
         let l_a = a.len();
-        let start = start_timer!(|| format!("best fft {} ({})", a.len(), num_threads));
+        // let start = start_timer!(|| format!("best fft {} ({})", a.len(), num_threads));
         fft::baseline::fft(
             &mut a,
             domain.get_omega(),
@@ -54,11 +54,11 @@ mod tests {
             domain.get_fft_data(l_a),
             false,
         );
-        end_timer!(start);
+        // end_timer!(start);
 
         let mut c = input.clone();
         let l_c = c.len();
-        let start = start_timer!(|| format!("parallel fft {} ({})", a.len(), num_threads));
+        // let start = start_timer!(|| format!("parallel fft {} ({})", a.len(), num_threads));
         fft::parallel::fft(
             &mut c,
             domain.get_omega(),
@@ -66,11 +66,11 @@ mod tests {
             domain.get_fft_data(l_c),
             false,
         );
-        end_timer!(start);
+        // end_timer!(start);
 
         let mut b = input;
         let l_b = b.len();
-        let start = start_timer!(|| format!("recursive fft {} ({})", a.len(), num_threads));
+        // let start = start_timer!(|| format!("recursive fft {} ({})", a.len(), num_threads));
         fft::recursive::fft(
             &mut b,
             domain.get_omega(),
@@ -78,7 +78,7 @@ mod tests {
             domain.get_fft_data(l_b),
             false,
         );
-        end_timer!(start);
+        // end_timer!(start);
 
         for i in 0..n {
             //log_info(format!("{}: {} {}", i, a[i], b[i]));
