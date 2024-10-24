@@ -282,10 +282,15 @@ impl<F: Field> Polynomial<Assigned<F>, LagrangeCoeff> {
     }
 }
 
-impl<'a, F: Field, B: Basis> Add<&'a Polynomial<F, B>> for Polynomial<F, B> {
-    type Output = Polynomial<F, B>;
+impl<'a, F: Field> Add<&'a Polynomial<F, LagrangeCoeff>> for Polynomial<F, LagrangeCoeff> {
+    type Output = Polynomial<F, LagrangeCoeff>;
 
-    fn add(mut self, rhs: &'a Polynomial<F, B>) -> Polynomial<F, B> {
+    fn add(mut self, rhs: &'a Polynomial<F, LagrangeCoeff>) -> Polynomial<F, LagrangeCoeff> {
+        let coeffs_len = std::cmp::max(self.num_coeffs(), rhs.num_coeffs());
+        self.values.resize(coeffs_len, F::ZERO);
+        let mut rhs = rhs.clone();
+        rhs.values.resize(coeffs_len, F::ZERO);
+
         parallelize(&mut self.values, |lhs, start| {
             for (lhs, rhs) in lhs.iter_mut().zip(rhs.values[start..].iter()) {
                 *lhs += *rhs;
@@ -296,10 +301,109 @@ impl<'a, F: Field, B: Basis> Add<&'a Polynomial<F, B>> for Polynomial<F, B> {
     }
 }
 
-impl<'a, F: Field, B: Basis> Sub<&'a Polynomial<F, B>> for Polynomial<F, B> {
-    type Output = Polynomial<F, B>;
+impl<'a, F: Field> Add<&'a Polynomial<F, ExtendedLagrangeCoeff>>
+    for Polynomial<F, ExtendedLagrangeCoeff>
+{
+    type Output = Polynomial<F, ExtendedLagrangeCoeff>;
 
-    fn sub(mut self, rhs: &'a Polynomial<F, B>) -> Polynomial<F, B> {
+    fn add(
+        mut self,
+        rhs: &'a Polynomial<F, ExtendedLagrangeCoeff>,
+    ) -> Polynomial<F, ExtendedLagrangeCoeff> {
+        let coeffs_len = std::cmp::max(self.num_coeffs(), rhs.num_coeffs());
+        self.values.resize(coeffs_len, F::ZERO);
+        let mut rhs = rhs.clone();
+        rhs.values.resize(coeffs_len, F::ZERO);
+
+        parallelize(&mut self.values, |lhs, start| {
+            for (lhs, rhs) in lhs.iter_mut().zip(rhs.values[start..].iter()) {
+                *lhs += *rhs;
+            }
+        });
+
+        self
+    }
+}
+
+impl<'a, F: Field> Add<&'a Polynomial<F, Coeff>> for Polynomial<F, Coeff> {
+    type Output = Polynomial<F, Coeff>;
+
+    fn add(mut self, rhs: &'a Polynomial<F, Coeff>) -> Polynomial<F, Coeff> {
+        self.strip_zeros();
+        let mut rhs = rhs.clone();
+        rhs.strip_zeros();
+
+        let coeffs_len = std::cmp::max(self.num_coeffs(), rhs.num_coeffs());
+        self.values.resize(coeffs_len, F::ZERO);
+        let mut rhs = rhs.clone();
+        rhs.values.resize(coeffs_len, F::ZERO);
+
+        parallelize(&mut self.values, |lhs, start| {
+            for (lhs, rhs) in lhs.iter_mut().zip(rhs.values[start..].iter()) {
+                *lhs += *rhs;
+            }
+        });
+
+        self
+    }
+}
+
+impl<'a, F: Field> Sub<&'a Polynomial<F, LagrangeCoeff>> for Polynomial<F, LagrangeCoeff> {
+    type Output = Polynomial<F, LagrangeCoeff>;
+
+    fn sub(mut self, rhs: &'a Polynomial<F, LagrangeCoeff>) -> Polynomial<F, LagrangeCoeff> {
+        let coeffs_len = std::cmp::max(self.num_coeffs(), rhs.num_coeffs());
+        self.values.resize(coeffs_len, F::ZERO);
+        let mut rhs = rhs.clone();
+        rhs.values.resize(coeffs_len, F::ZERO);
+
+        parallelize(&mut self.values, |lhs, start| {
+            for (lhs, rhs) in lhs.iter_mut().zip(rhs.values[start..].iter()) {
+                *lhs -= *rhs;
+            }
+        });
+
+        self
+    }
+}
+
+impl<'a, F: Field> Sub<&'a Polynomial<F, ExtendedLagrangeCoeff>>
+    for Polynomial<F, ExtendedLagrangeCoeff>
+{
+    type Output = Polynomial<F, ExtendedLagrangeCoeff>;
+
+    fn sub(
+        mut self,
+        rhs: &'a Polynomial<F, ExtendedLagrangeCoeff>,
+    ) -> Polynomial<F, ExtendedLagrangeCoeff> {
+        let coeffs_len = std::cmp::max(self.num_coeffs(), rhs.num_coeffs());
+        self.values.resize(coeffs_len, F::ZERO);
+        let mut rhs = rhs.clone();
+        rhs.values.resize(coeffs_len, F::ZERO);
+
+        parallelize(&mut self.values, |lhs, start| {
+            for (lhs, rhs) in lhs.iter_mut().zip(rhs.values[start..].iter()) {
+                *lhs -= *rhs;
+            }
+        });
+
+        self
+    }
+}
+
+impl<'a, F: Field> Sub<&'a Polynomial<F, Coeff>> for Polynomial<F, Coeff> {
+    type Output = Polynomial<F, Coeff>;
+
+    fn sub(mut self, rhs: &'a Polynomial<F, Coeff>) -> Polynomial<F, Coeff> {
+        self.strip_zeros();
+        let mut rhs = rhs.clone();
+        rhs.strip_zeros();
+
+        let coeffs_len = std::cmp::max(self.num_coeffs(), rhs.num_coeffs());
+        self.values.resize(coeffs_len, F::ZERO);
+        let mut rhs = rhs.clone();
+        rhs.values.resize(coeffs_len, F::ZERO);
+
         parallelize(&mut self.values, |lhs, start| {
             for (lhs, rhs) in lhs.iter_mut().zip(rhs.values[start..].iter()) {
                 *lhs -= *rhs;
@@ -326,10 +430,35 @@ impl<F: Field> Polynomial<F, LagrangeCoeff> {
     }
 }
 
-impl<F: Field, B: Basis> Mul<F> for Polynomial<F, B> {
-    type Output = Polynomial<F, B>;
+impl<F: Field> Mul<F> for Polynomial<F, LagrangeCoeff> {
+    type Output = Polynomial<F, LagrangeCoeff>;
 
-    fn mul(mut self, rhs: F) -> Polynomial<F, B> {
+    fn mul(mut self, rhs: F) -> Polynomial<F, LagrangeCoeff> {
+        if rhs == F::ZERO {
+            return Polynomial {
+                values: vec![F::ZERO; self.len()],
+                _marker: PhantomData,
+            };
+        }
+        if rhs == F::ONE {
+            return self;
+        }
+
+        parallelize(&mut self.values, |lhs, _| {
+            for lhs in lhs.iter_mut() {
+                *lhs *= rhs;
+            }
+        });
+
+        self
+    }
+}
+
+impl<F: Field> Mul<F> for Polynomial<F, Coeff> {
+    type Output = Polynomial<F, Coeff>;
+
+    fn mul(mut self, rhs: F) -> Polynomial<F, Coeff> {
+        self.strip_zeros();
         if rhs == F::ZERO {
             return Polynomial {
                 values: vec![F::ZERO; self.len()],
@@ -355,12 +484,24 @@ impl<F: Field> Polynomial<F, Coeff> {
     pub fn is_zero(&self) -> bool {
         self.coeffs().iter().fold(F::ZERO, |acc, val| acc + val) == F::ZERO
     }
+
+    /// Remove trailing zeros (higher-degree coeffs)
+    pub fn strip_zeros(&mut self) {
+        while self.values.last().unwrap() == &F::ZERO && self.values.len() > 1 {
+            self.values.pop();
+        }
+    }
 }
 
 impl<F: PrimeField + WithSmallOrderMulGroup<3>> Polynomial<F, Coeff> {
     /// Divide with quotient and remainder
-    pub fn divide_with_q_and_r(&self, rhs: Self) -> (Self, Self) {
-        if self.is_zero() || self.num_coeffs() < rhs.num_coeffs() {
+    pub fn divide_with_q_and_r(&self, divisor: Self) -> (Self, Self) {
+        let mut poly = self.clone();
+        let mut divisor = divisor.clone();
+        poly.strip_zeros();
+        divisor.strip_zeros();
+
+        if self.is_zero() || self.num_coeffs() < divisor.num_coeffs() {
             return (
                 Polynomial {
                     values: vec![F::ZERO],
@@ -370,40 +511,29 @@ impl<F: PrimeField + WithSmallOrderMulGroup<3>> Polynomial<F, Coeff> {
             );
         }
 
-        let res_num_coeffs = self.num_coeffs() - rhs.num_coeffs();
+        let quotient_num_coeffs = poly.num_coeffs() - divisor.num_coeffs() + 1;
 
-        let mut quotient = vec![F::ZERO; res_num_coeffs + 1];
-        let mut remainder = self.clone();
+        let mut quotient = vec![F::ZERO; quotient_num_coeffs];
+        let mut remainder = poly.clone();
 
         // Can unwrap here because we know self is not zero.
-        let divisor_leading_inv = rhs.last().unwrap().invert().unwrap();
-        while !remainder.is_zero() && remainder.num_coeffs() >= rhs.num_coeffs() {
+        let divisor_leading_inv = divisor.last().unwrap().invert().unwrap();
+        while !remainder.is_zero() && remainder.num_coeffs() >= divisor.num_coeffs() {
             let cur_q_coeff = *remainder.values.last().unwrap() * divisor_leading_inv;
-            let cur_q_degree = remainder.num_coeffs() - rhs.num_coeffs();
+            let cur_q_degree = (remainder.num_coeffs() - 1) - (divisor.num_coeffs() - 1);
+
             quotient[cur_q_degree] = cur_q_coeff;
 
-            for (i, div_coeff) in rhs.iter().enumerate() {
+            for (i, div_coeff) in divisor.iter().enumerate() {
                 remainder[cur_q_degree + i] -= &(cur_q_coeff * div_coeff);
             }
-            while let Some(true) = remainder.values.last().map(|c| c.is_zero().into()) {
-                remainder.values.pop();
-            }
+            remainder.strip_zeros();
         }
 
-        if *quotient.last().unwrap() == F::ZERO {
-            quotient.pop();
-        }
+        let mut quotient = Polynomial::from_coeffs(quotient);
+        quotient.strip_zeros();
 
-        (
-            Polynomial {
-                values: quotient,
-                _marker: PhantomData,
-            },
-            Polynomial {
-                values: remainder.to_vec(),
-                _marker: PhantomData,
-            },
-        )
+        (quotient, remainder)
     }
 }
 
@@ -420,41 +550,49 @@ impl<F: Field + WithSmallOrderMulGroup<3>> Mul<Polynomial<F, Coeff>> for Polynom
 
     #[allow(clippy::suspicious_arithmetic_impl)]
     fn mul(self, rhs: Polynomial<F, Coeff>) -> Self::Output {
-        // Extend both polynomials coefficient vectors to their nearest power-of-2 resultant degree
-        let resulting_degree = self.num_coeffs() + (rhs.num_coeffs() - 1);
-        let n = resulting_degree.next_power_of_two();
-        let mut self_extended_coeffs: Vec<_> = self.coeffs().to_vec();
-        self_extended_coeffs.resize(n, F::ZERO);
+        let mut poly = self.clone();
+        poly.strip_zeros();
 
-        let mut rhs_extended_coeffs: Vec<_> = rhs.coeffs().to_vec();
-        rhs_extended_coeffs.resize(n, F::ZERO);
+        let mut rhs = rhs.clone();
+        rhs.strip_zeros();
+
+        if poly.num_coeffs() == 1 {
+            return rhs * poly.values[0];
+        }
+        if rhs.num_coeffs() == 1 {
+            return poly * rhs.values[0];
+        }
+
+        // Extend both polynomials coefficient vectors to their nearest power-of-2 resultant degree
+        let resulting_degree = (poly.num_coeffs() - 1) + (rhs.num_coeffs() - 1);
+        let num_coeffs = resulting_degree + 1;
+        let n = num_coeffs.next_power_of_two();
+        poly.values.resize(n, F::ZERO);
+        rhs.values.resize(n, F::ZERO);
 
         // Take the forward FFT of the two polynomials
         let log_n = n.ilog2() as u32;
         let domain: EvaluationDomain<F> = EvaluationDomain::new(1, log_n);
-        best_fft(&mut self_extended_coeffs, domain.get_omega(), domain.k());
-        best_fft(&mut rhs_extended_coeffs, domain.get_omega(), domain.k());
+        best_fft(&mut poly.values, domain.get_omega(), domain.k());
+        best_fft(&mut rhs.values, domain.get_omega(), domain.k());
 
         // Multiply the two polynomials in the FFT image
-        let mut mul_res = self_extended_coeffs
+        let mut mul_res = poly
+            .values
             .iter()
-            .zip(rhs_extended_coeffs.iter())
+            .zip(rhs.values.iter())
             .map(|(&val, &rhs)| val * rhs)
             .collect::<Vec<_>>();
 
         // Take the inverse FFT of the result to get the coefficients of the product
         best_fft(&mut mul_res, domain.get_omega_inv(), domain.k());
-        let resulting_num_coeffs = resulting_degree + 1;
-        let zeros = mul_res.split_off(resulting_num_coeffs);
-        assert!(Polynomial::from_coeffs(zeros).is_zero());
+        let mut mul_res = Polynomial::from_coeffs(mul_res);
+        mul_res.strip_zeros();
 
         let n_inv = F::from(domain.get_n()).invert().unwrap();
-        let coeffs = mul_res.iter().map(|&v| v * n_inv).collect();
+        mul_res.iter_mut().for_each(|v| *v *= n_inv);
 
-        Polynomial {
-            values: coeffs,
-            _marker: PhantomData,
-        }
+        mul_res
     }
 }
 
@@ -464,6 +602,27 @@ impl<'a, F: Field, B: Basis> Sub<F> for &'a Polynomial<F, B> {
     fn sub(self, rhs: F) -> Polynomial<F, B> {
         let mut res = self.clone();
         res.values[0] -= rhs;
+        res
+    }
+}
+
+impl<'a, F: Field> Add<F> for &'a Polynomial<F, LagrangeCoeff> {
+    type Output = Polynomial<F, LagrangeCoeff>;
+
+    fn add(self, rhs: F) -> Polynomial<F, LagrangeCoeff> {
+        let mut res = self.clone();
+        res.values[0] += rhs;
+        res
+    }
+}
+
+impl<'a, F: Field> Add<F> for &'a Polynomial<F, Coeff> {
+    type Output = Polynomial<F, Coeff>;
+
+    fn add(self, rhs: F) -> Polynomial<F, Coeff> {
+        let mut res = self.clone();
+        res.strip_zeros();
+        res.values[0] += rhs;
         res
     }
 }
@@ -513,9 +672,12 @@ mod tests {
 
     #[test]
     fn test_poly_div() {
-        let degree = 256;
-        let a = random_poly::<Fr>(degree);
-        let b = random_poly::<Fr>(degree);
+        use rand::Rng;
+        let mut rng = rand::thread_rng();
+
+        let num_coeffs = 256;
+        let a = random_poly::<Fr>(num_coeffs);
+        let b = random_poly::<Fr>(rng.gen_range(1..num_coeffs));
 
         let ab = a.clone() * b.clone();
         let res_a = ab.clone() / b.clone();
@@ -524,17 +686,16 @@ mod tests {
         assert_eq!(a.coeffs(), res_a.coeffs());
         assert_eq!(b.coeffs(), res_b.coeffs());
 
-        let mut r = vec![Fr::one()];
-        r.resize(degree * 2, Fr::zero());
-        let r = Polynomial::from_coeffs(r);
-
-        let abr = ab + &r;
+        let r = &b - Fr::one();
+        let abr = ab.clone() + &r;
         let (res_a, res_r) = abr.divide_with_q_and_r(b.clone());
-        assert_eq!(a.coeffs(), res_a.coeffs());
-        assert_eq!(r.coeffs()[0], res_r.coeffs()[0]);
+        assert_eq!((&a + Fr::one()).coeffs(), res_a.coeffs());
+        assert_eq!(-Fr::one(), res_r.coeffs()[0]);
 
+        let r = &a - Fr::one();
+        let abr = ab + &r;
         let (res_b, res_r) = abr.divide_with_q_and_r(a);
-        assert_eq!(b.coeffs(), res_b.coeffs());
-        assert_eq!(r.coeffs()[0], res_r.coeffs()[0]);
+        assert_eq!((&b + Fr::one()).coeffs(), res_b.coeffs());
+        assert_eq!(-Fr::one(), res_r.coeffs()[0]);
     }
 }

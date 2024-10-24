@@ -170,7 +170,7 @@ where
 
             Polynomial {
                 values: poly,
-                _marker: PhantomData,
+                _marker: PhantomData::<Coeff>,
             }
         };
 
